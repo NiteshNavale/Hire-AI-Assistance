@@ -29,17 +29,19 @@ def apply_custom_styles():
         /* Base App Styling */
         .stApp { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
         
-        /* Sidebar Styling - Ensure visibility in both Light and Dark modes */
-        [data-testid="stSidebar"] { 
-            background-color: #ffffff; 
-            border-right: 1px solid #e2e8f0; 
+        /* Sidebar Styling */
+        section[data-testid="stSidebar"] { 
+            background-color: #ffffff !important; 
+            border-right: 1px solid #e2e8f0;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.02);
         }
         
-        /* Force dark text color for sidebar elements to prevent white-on-white in Dark Mode */
-        [data-testid="stSidebar"] * {
+        /* Sidebar Content */
+        section[data-testid="stSidebar"] .stMarkdown, 
+        section[data-testid="stSidebar"] .stRadio label {
             color: #0f172a !important;
         }
-
+        
         /* Card Styling */
         .hireai-card {
             background: white; padding: 24px; border-radius: 20px;
@@ -66,8 +68,11 @@ def apply_custom_styles():
         [data-testid="stMetricValue"] { font-weight: 900; color: #1e293b; }
         h1, h2, h3 { font-weight: 900 !important; letter-spacing: -1px !important; color: #0f172a !important; }
         
-        /* Hide default Streamlit chrome */
-        #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+        /* Hide ONLY the hamburger menu and footer, but keep the header for sidebar controls */
+        #MainMenu {visibility: hidden;} 
+        footer {visibility: hidden;} 
+        /* header {visibility: hidden;}  <-- REMOVED to allow sidebar toggle */
+        
         </style>
     """, unsafe_allow_html=True)
 
@@ -165,11 +170,11 @@ def sidebar_nav():
         st.markdown("""
             <div style='display: flex; align-items: center; gap: 12px; margin-bottom: 30px;'>
                 <div style='background: #2563eb; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900;'>H</div>
-                <h2 style='margin: 0; font-size: 24px;'>HireAI</h2>
+                <h2 style='margin: 0; font-size: 24px; color: #0f172a;'>HireAI</h2>
             </div>
         """, unsafe_allow_html=True)
         
-        # Using a key ensures better state stability, though not strictly required if UI flow is linear.
+        # Using a key ensures better state stability
         choice = st.radio("MAIN NAVIGATION", 
                          ["Candidate Portal", "Candidate Login", "HR Dashboard"],
                          label_visibility="collapsed",
