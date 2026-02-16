@@ -26,8 +26,21 @@ def apply_custom_styles():
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
         
+        /* Base App Styling */
         .stApp { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
+        
+        /* Sidebar Styling - Ensure visibility in both Light and Dark modes */
+        [data-testid="stSidebar"] { 
+            background-color: #ffffff; 
+            border-right: 1px solid #e2e8f0; 
+        }
+        
+        /* Force dark text color for sidebar elements to prevent white-on-white in Dark Mode */
+        [data-testid="stSidebar"] * {
+            color: #0f172a !important;
+        }
+
+        /* Card Styling */
         .hireai-card {
             background: white; padding: 24px; border-radius: 20px;
             border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
@@ -37,6 +50,8 @@ def apply_custom_styles():
             font-size: 10px; font-weight: 900; color: #64748b;
             text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
         }
+        
+        /* Button Styling */
         .stButton>button {
             width: 100%; border-radius: 12px; font-weight: 700;
             background-color: #2563eb; color: white; border: none; padding: 12px;
@@ -46,8 +61,12 @@ def apply_custom_styles():
             background-color: #1d4ed8; transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
         }
+        
+        /* Metrics & Headings */
         [data-testid="stMetricValue"] { font-weight: 900; color: #1e293b; }
         h1, h2, h3 { font-weight: 900 !important; letter-spacing: -1px !important; color: #0f172a !important; }
+        
+        /* Hide default Streamlit chrome */
         #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
         </style>
     """, unsafe_allow_html=True)
@@ -150,9 +169,11 @@ def sidebar_nav():
             </div>
         """, unsafe_allow_html=True)
         
+        # Using a key ensures better state stability, though not strictly required if UI flow is linear.
         choice = st.radio("MAIN NAVIGATION", 
                          ["Candidate Portal", "Candidate Login", "HR Dashboard"],
-                         label_visibility="collapsed")
+                         label_visibility="collapsed",
+                         key="nav_radio")
         
         st.markdown("---")
         st.markdown("<p class='hireai-label'>System Status</p>", unsafe_allow_html=True)
@@ -204,33 +225,36 @@ def view_candidate_portal():
         if st.button("SUBMIT APPLICATION"):
             if name and email and resume:
                 with st.spinner("AI is analyzing your profile..."):
-                    resume_text = resume.read().decode("utf-8", errors="ignore")
-                    analysis = screen_resume_ai(resume_text, role)
-                    access_key = generate_key()
-                    c_id = str(uuid.uuid4())
-                    
-                    new_candidate = {
-                        "id": c_id,
-                        "name": name,
-                        "email": email,
-                        "role": role,
-                        "status": "Screening",
-                        "score": analysis['overallScore'],
-                        "technical": analysis['technicalMatch'],
-                        "summary": analysis['summary'],
-                        "access_key": access_key,
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "aptitude_score": None,
-                        "aptitudeDate": None,
-                        "aptitudeTime": None,
-                        "round2Date": None,
-                        "round2Time": None,
-                        "round2Link": None
-                    }
-                    database.save_candidate(new_candidate)
-                    st.balloons()
-                    st.success("Profile Screened!")
-                    st.session_state.last_submitted = new_candidate
+                    try:
+                        resume_text = resume.read().decode("utf-8", errors="ignore")
+                        analysis = screen_resume_ai(resume_text, role)
+                        access_key = generate_key()
+                        c_id = str(uuid.uuid4())
+                        
+                        new_candidate = {
+                            "id": c_id,
+                            "name": name,
+                            "email": email,
+                            "role": role,
+                            "status": "Screening",
+                            "score": analysis['overallScore'],
+                            "technical": analysis['technicalMatch'],
+                            "summary": analysis['summary'],
+                            "access_key": access_key,
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "aptitude_score": None,
+                            "aptitudeDate": None,
+                            "aptitudeTime": None,
+                            "round2Date": None,
+                            "round2Time": None,
+                            "round2Link": None
+                        }
+                        database.save_candidate(new_candidate)
+                        st.balloons()
+                        st.success("Profile Screened!")
+                        st.session_state.last_submitted = new_candidate
+                    except Exception as e:
+                        st.error(f"Error processing application: {e}")
             else:
                 st.warning("Please fill all fields.")
         st.markdown("</div>", unsafe_allow_html=True)
