@@ -1,5 +1,5 @@
 
-export type CandidateStatus = 'Screening' | 'Interviewing' | 'Evaluated' | 'Hired' | 'Rejected';
+export type CandidateStatus = 'Screening' | 'Aptitude Scheduled' | 'Aptitude Completed' | 'Interview Scheduled' | 'Hired' | 'Rejected';
 
 export interface Badge {
   id: string;
@@ -33,12 +33,20 @@ export interface Candidate {
   skills: SkillScore[];
   points: number;
   badges: string[];
-  interviewDate?: string;
-  interviewTime?: string;
+  
+  // Scheduling Details
+  aptitudeDate?: string; // YYYY-MM-DD
+  aptitudeTime?: string; // HH:MM
+  
+  round2Date?: string;
+  round2Time?: string;
+  round2Link?: string;
+
   isDuplicate?: boolean;
   duplicateOf?: string;
   resumeHash?: string;
   accessKey?: string; // Unique key for candidate login
+  aptitudeScore?: number; // New field for aptitude test results
   gapAnalysis: {
     skill: string;
     gap: string;

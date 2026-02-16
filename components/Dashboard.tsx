@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { Candidate } from '../types';
 import ScheduleModal from './ScheduleModal';
+import AddUserModal from './AddUserModal';
 
 interface DashboardProps {
   candidates: Candidate[];
+  authToken?: string | null;
   onViewCandidate: (id: string) => void;
   onStartInterview: (id: string) => void;
   onStartScreening: () => void;
@@ -13,40 +15,53 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   candidates, 
+  authToken,
   onViewCandidate, 
   onStartInterview,
   onStartScreening,
   onUpdateCandidate
 }) => {
-  const [selectedForSchedule, setSelectedForSchedule] = useState<Candidate | null>(null);
-  const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState<{candidate: Candidate, type: 'aptitude'|'interview'} | null>(null);
+  const [showAddUser, setShowAddUser] = useState(false);
   const [toast, setToast] = useState<{msg: string, type: 'success', key?: string} | null>(null);
 
   const realCandidates = candidates.filter(c => c.id !== 'practice-user');
 
   const stats = [
-    { label: 'Active Pipeline', value: realCandidates.length.toString() },
-    { label: 'Scheduled Interviews', value: realCandidates.filter(c => c.status === 'Interviewing').length.toString() },
-    { label: 'Avg Match Score', value: realCandidates.length > 0 
-        ? (realCandidates.reduce((acc, c) => acc + c.overallScore, 0) / realCandidates.length).toFixed(0) + ' / 100' 
-        : '0 / 100' 
-    }
+    { label: 'Screening', value: realCandidates.filter(c => c.status === 'Screening').length.toString() },
+    { label: 'Aptitude Pending', value: realCandidates.filter(c => c.status === 'Aptitude Scheduled').length.toString() },
+    { label: 'Round 2 Set', value: realCandidates.filter(c => c.status === 'Interview Scheduled').length.toString() }
   ];
 
-  const handleScheduleConfirm = (id: string, date: string, time: string) => {
+  const handleScheduleConfirm = (id: string, date: string, time: string, type: 'aptitude'|'interview') => {
     const candidate = candidates.find(c => c.id === id);
-    onUpdateCandidate(id, { 
-      status: 'Interviewing', 
-      interviewDate: date, 
-      interviewTime: time 
-    });
-    setSelectedForSchedule(null);
-    setToast({ 
-      msg: `Interview scheduled for ${date} at ${time}.`, 
-      type: 'success',
-      key: candidate?.accessKey
-    });
+    if (!candidate) return;
+
+    if (type === 'aptitude') {
+        onUpdateCandidate(id, { 
+            status: 'Aptitude Scheduled', 
+            aptitudeDate: date, 
+            aptitudeTime: time 
+        });
+        setToast({ msg: `Aptitude Exam scheduled for ${date} at ${time}. Email sent.`, type: 'success' });
+    } else {
+        const link = `https://meet.google.com/abc-${Math.random().toString(36).substr(2, 4)}-xyz`;
+        onUpdateCandidate(id, { 
+            status: 'Interview Scheduled', 
+            round2Date: date, 
+            round2Time: time,
+            round2Link: link
+        });
+        setToast({ msg: `Round 2 Interview scheduled. Meeting link generated.`, type: 'success' });
+    }
+    
+    setScheduleModalOpen(null);
     setTimeout(() => setToast(null), 6000);
+  };
+
+  const handleAddUser = async (u: string, p: string) => {
+    // Disabled in simplified auth mode
+    return false;
   };
 
   return (
@@ -57,19 +72,18 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center font-bold">✓</div>
             <p className="font-bold text-sm">{toast.msg}</p>
           </div>
-          {toast.key && (
-            <div className="mt-2 p-3 bg-white/10 rounded-xl border border-white/10">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Access Key Shared:</p>
-              <p className="text-xl font-black text-blue-400 tracking-tighter">{toast.key}</p>
-            </div>
-          )}
         </div>
       )}
 
-      {selectedForSchedule && (
+      {showAddUser && (
+        <AddUserModal onClose={() => setShowAddUser(false)} onAdd={handleAddUser} />
+      )}
+
+      {scheduleModalOpen && (
         <ScheduleModal 
-          candidate={selectedForSchedule} 
-          onClose={() => setSelectedForSchedule(null)}
+          candidate={scheduleModalOpen.candidate} 
+          type={scheduleModalOpen.type}
+          onClose={() => setScheduleModalOpen(null)}
           onSchedule={handleScheduleConfirm}
         />
       )}
@@ -77,13 +91,13 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recruitment Dashboard</h2>
-          <p className="text-slate-500 font-medium tracking-tight italic">AI-analyzed candidate database with secure access key management.</p>
+          <p className="text-slate-500 font-medium tracking-tight italic">Manage Aptitude Exams and Final Interviews.</p>
         </div>
         <div className="flex gap-3">
-           <div className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 border border-emerald-100">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            Database Active
-          </div>
+           {/* Manage Access Button Removed for Simplified Login Mode */}
+           <button onClick={onStartScreening} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-100 active:scale-95">
+             + New Batch Screening
+           </button>
         </div>
       </div>
 
@@ -99,7 +113,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
           <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Candidate Pipeline</h3>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{realCandidates.length} Active Profiles</span>
         </div>
         
         {realCandidates.length === 0 ? (
@@ -112,122 +125,112 @@ const Dashboard: React.FC<DashboardProps> = ({
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-slate-50/80 text-slate-500 text-[10px] font-black uppercase tracking-wider">
-                  <th className="px-8 py-5">Candidate Details</th>
-                  <th className="px-8 py-5">Target Role</th>
-                  <th className="px-8 py-5">Pipeline Status</th>
-                  <th className="px-8 py-5">AI Confidence</th>
-                  <th className="px-8 py-5 text-right">Actions</th>
+                  <th className="px-8 py-5">Candidate</th>
+                  <th className="px-8 py-5">Stage</th>
+                  <th className="px-8 py-5">Scores (Resume / Aptitude)</th>
+                  <th className="px-8 py-5 text-right">Next Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {realCandidates.map((c) => (
-                  <React.Fragment key={c.id}>
-                    <tr className="hover:bg-blue-50/30 transition-colors group">
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-4">
-                          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${c.name}`} className="w-12 h-12 rounded-2xl border bg-white" alt="" />
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-black text-slate-900">{c.name}</p>
-                              {c.isDuplicate && (
-                                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[8px] font-black uppercase tracking-widest rounded">DUPLICATE</span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{c.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6">
-                        <p className="text-sm font-bold text-slate-700">{c.role}</p>
-                        {c.interviewDate && (
-                          <p className="text-[10px] font-black text-blue-600 uppercase mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded tracking-tighter">Round: {c.interviewDate}</p>
-                        )}
-                      </td>
-                      <td className="px-8 py-6">
-                        <span className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                          c.status === 'Interviewing' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="px-8 py-6">
-                        <button 
-                          onClick={() => setExpandedCandidate(expandedCandidate === c.id ? null : c.id)}
-                          className="flex items-center gap-3 bg-white border border-slate-200 px-4 py-2 rounded-2xl hover:border-blue-500 transition-all shadow-sm group/btn"
-                        >
-                          <span className={`text-sm font-black ${c.overallScore > 80 ? 'text-green-600' : 'text-blue-600'}`}>{c.overallScore} / 100</span>
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-l pl-3 group-hover/btn:text-blue-600">Details</span>
-                        </button>
-                      </td>
-                      <td className="px-8 py-6 text-right space-x-2">
-                        {c.status === 'Screening' ? (
-                          <button 
-                            onClick={() => setSelectedForSchedule(c)}
-                            className="text-[10px] font-black bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 shadow-xl shadow-blue-50 transition-all active:scale-95 uppercase tracking-widest"
-                          >
-                            Schedule
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => onStartInterview(c.id)}
-                            className="text-[10px] font-black bg-emerald-600 text-white px-5 py-2.5 rounded-xl hover:bg-emerald-700 shadow-xl shadow-emerald-50 transition-all active:scale-95 uppercase tracking-widest"
-                          >
-                            Review
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {expandedCandidate === c.id && (
-                      <tr>
-                        <td colSpan={5} className="bg-slate-50/50 p-0 overflow-hidden">
-                          <div className="p-8 border-b border-slate-200 animate-slideDown">
-                            <div className="flex gap-6 mb-8">
-                               <div className="flex-1 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-                                  <div className="absolute top-0 right-0 p-3 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest">Security Token</div>
-                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Unique Access Key</p>
-                                  <p className="text-3xl font-black text-slate-900 tracking-tighter">{c.accessKey || "KEY-NOT-GEN"}</p>
-                                  <p className="text-[10px] text-indigo-500 font-bold mt-2 italic">Sent to candidate with invite for proctored round login.</p>
-                               </div>
-                               <div className="flex-[2] bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                                  <span className="text-blue-600 font-black uppercase text-[10px] block mb-2">AI Resume Summary</span>
-                                  <p className="text-sm font-medium text-slate-700 leading-relaxed">{c.resumeSummary}</p>
-                               </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                              <div className="space-y-3">
-                                <div className="flex justify-between items-center px-1">
-                                  <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Technical Fit</span>
-                                  <span className="text-xs font-black text-blue-600">{c.technicalScore}%</span>
-                                </div>
-                                <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm min-h-[160px]">
-                                  <p className="text-xs text-slate-500 leading-relaxed font-medium">{c.technicalReasoning || "Loading technical insights..."}</p>
-                                </div>
+                {realCandidates.map((c) => {
+                  const isPassed = (c.aptitudeScore || 0) >= 50;
+                  
+                  return (
+                    <React.Fragment key={c.id}>
+                      <tr className="hover:bg-blue-50/30 transition-colors group">
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${c.name}`} className="w-12 h-12 rounded-2xl border bg-white" alt="" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-black text-slate-900">{c.name}</p>
                               </div>
-                              <div className="space-y-3">
-                                <div className="flex justify-between items-center px-1">
-                                  <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Communication</span>
-                                  <span className="text-xs font-black text-blue-600">{c.communicationScore}%</span>
-                                </div>
-                                <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm min-h-[160px]">
-                                  <p className="text-xs text-slate-500 leading-relaxed font-medium">{c.communicationReasoning || "Loading soft skill insights..."}</p>
-                                </div>
-                              </div>
-                              <div className="space-y-3">
-                                <div className="flex justify-between items-center px-1">
-                                  <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Problem Solving</span>
-                                  <span className="text-xs font-black text-blue-600">{c.problemSolvingScore}%</span>
-                                </div>
-                                <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm min-h-[160px]">
-                                  <p className="text-xs text-slate-500 leading-relaxed font-medium">{c.problemSolvingReasoning || "Loading analytical insights..."}</p>
-                                </div>
-                              </div>
+                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{c.role}</p>
                             </div>
                           </div>
                         </td>
+                        <td className="px-8 py-6">
+                          <span className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                            c.status === 'Interview Scheduled' ? 'bg-purple-600 text-white' :
+                            c.status === 'Aptitude Completed' ? (isPassed ? 'bg-green-600 text-white' : 'bg-red-100 text-red-600') :
+                            c.status === 'Aptitude Scheduled' ? 'bg-orange-100 text-orange-600' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {c.status === 'Aptitude Completed' && !isPassed ? 'Failed Aptitude' : c.status}
+                          </span>
+                          {c.aptitudeDate && c.status === 'Aptitude Scheduled' && (
+                              <div className="text-[10px] text-slate-400 font-bold mt-1">Due: {c.aptitudeDate} {c.aptitudeTime}</div>
+                          )}
+                          {c.round2Date && c.status === 'Interview Scheduled' && (
+                              <div className="text-[10px] text-purple-400 font-bold mt-1">{c.round2Date} {c.round2Time}</div>
+                          )}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex gap-4">
+                              <div>
+                                  <span className="text-xs font-bold text-slate-400 block uppercase">Resume</span>
+                                  <span className="text-sm font-black text-slate-900">{c.overallScore}%</span>
+                              </div>
+                              {c.aptitudeScore !== undefined && c.aptitudeScore !== null && (
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 block uppercase">Aptitude</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`text-sm font-black ${isPassed ? 'text-green-600' : 'text-red-600'}`}>
+                                          {c.aptitudeScore}%
+                                        </span>
+                                        <span className={`text-[8px] px-1.5 py-0.5 rounded uppercase font-bold ${isPassed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                            {isPassed ? 'PASS' : 'FAIL'}
+                                        </span>
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          {/* Action Logic */}
+                          {c.status === 'Screening' && (
+                            <button 
+                              onClick={() => setScheduleModalOpen({candidate: c, type: 'aptitude'})}
+                              className="text-[10px] font-black bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 shadow-xl shadow-blue-50 transition-all active:scale-95 uppercase tracking-widest"
+                            >
+                              Schedule Aptitude
+                            </button>
+                          )}
+                          
+                          {(c.status === 'Aptitude Scheduled') && (
+                               <span className="text-[10px] font-bold text-orange-400 italic">Waiting for Exam...</span>
+                          )}
+
+                          {(c.status === 'Aptitude Completed') && (
+                            isPassed ? (
+                              <button 
+                                onClick={() => setScheduleModalOpen({candidate: c, type: 'interview'})}
+                                className="text-[10px] font-black bg-purple-600 text-white px-5 py-2.5 rounded-xl hover:bg-purple-700 shadow-xl shadow-purple-50 transition-all active:scale-95 uppercase tracking-widest"
+                              >
+                                Schedule Round 2
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-2.5 rounded-xl uppercase tracking-widest">
+                                Not Qualified
+                              </span>
+                            )
+                          )}
+
+                          {c.status === 'Interview Scheduled' && c.round2Link && (
+                               <a 
+                                  href={c.round2Link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-block text-[10px] font-black bg-emerald-600 text-white px-5 py-2.5 rounded-xl hover:bg-emerald-700 shadow-xl shadow-emerald-50 transition-all active:scale-95 uppercase tracking-widest"
+                                >
+                                  Join Meeting
+                                </a>
+                          )}
+                        </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

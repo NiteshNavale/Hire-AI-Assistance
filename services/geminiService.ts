@@ -125,3 +125,37 @@ export const evaluateResponse = async (question: string, responseText: string) =
     score: Math.round(Number(data.score) || 0)
   };
 };
+
+export const generateAptitudeTest = async (role: string) => {
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Generate a comprehensive 20-question aptitude and IQ test for a ${role} candidate.
+    
+    Structure the test with the following sections (5 questions each):
+    1. Logical Reasoning (IQ & Pattern Matching)
+    2. Quantitative Aptitude (Math & Data Interpretation)
+    3. Verbal Ability (Language & Comprehension)
+    4. Domain/Technical Knowledge (Specific to ${role})
+
+    For each question, provide 4 distinct options and identify the correct index (0-3).`,
+    config: {
+      temperature: 0.4,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.INTEGER },
+            question: { type: Type.STRING },
+            options: { type: Type.ARRAY, items: { type: Type.STRING } },
+            correctAnswer: { type: Type.INTEGER, description: "Index of the correct option (0-3)" },
+            category: { type: Type.STRING }
+          },
+          required: ["id", "question", "options", "correctAnswer", "category"]
+        }
+      }
+    }
+  });
+  return JSON.parse(response.text);
+};

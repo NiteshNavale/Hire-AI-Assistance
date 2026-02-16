@@ -78,6 +78,7 @@ const App: React.FC = () => {
       case 'candidate-login': return <CandidateInterviewAccess candidates={candidates} onLogin={handleCandidateAccess} />;
       case 'dashboard': return <Dashboard 
           candidates={candidates} 
+          authToken={authToken}
           onViewCandidate={(id) => { setActiveCandidateId(id); setView('report'); }}
           onStartInterview={(id) => { setActiveCandidateId(id); setView('interview'); }}
           onStartScreening={() => setView('screening')}
@@ -89,7 +90,7 @@ const App: React.FC = () => {
       case 'interview': return <InterviewSimulator candidate={activeCandidate} onComplete={() => setView('dashboard')} />;
       case 'report': return <EvaluationReport candidate={activeCandidate} onBack={() => setView('dashboard')} />;
       case 'practice': return <PracticeSelector onStart={(role) => {
-          const dummy: Candidate = { ...MOCK_CANDIDATES[0], id: 'practice-user', name: 'Practice Mode User', role, status: 'Interviewing', overallScore: 0, technicalScore: 0, communicationScore: 0, problemSolvingScore: 0, resumeSummary: '', points: 0, badges: [], skills: [], gapAnalysis: [], trainingPath: [] };
+          const dummy: Candidate = { ...MOCK_CANDIDATES[0], id: 'practice-user', name: 'Practice Mode User', role, status: 'Screening', email: 'practice@hireai.com', overallScore: 0, technicalScore: 0, communicationScore: 0, problemSolvingScore: 0, resumeSummary: '', points: 0, badges: [], skills: [], gapAnalysis: [], trainingPath: [] };
           setCandidates(prev => [...prev.filter(c => c.id !== 'practice-user'), dummy]);
           setActiveCandidateId('practice-user');
           setView('interview');

@@ -16,42 +16,61 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
     setError('');
 
-    // --- SECURE LOGIN CODE (COMMENTED OUT FOR LATER) ---
-    /*
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000); 
+    // ---------------------------------------------------------
+    // CLIENT-SIDE AUTHENTICATION (Database Bypass)
+    // ---------------------------------------------------------
+    // We check credentials locally first. This guarantees that 
+    // the HR Portal is accessible even if the backend is down 
+    // or the database is locked.
+    if (username === 'admin' && password === 'admin123') {
+        const token = 'admin-bypass-' + Date.now();
+        // Short artificial delay for better UX
+        setTimeout(() => {
+            onLoginSuccess(token);
+        }, 600);
+        return;
+    }
+    // ---------------------------------------------------------
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+    try {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
         signal: controller.signal
-      }).catch(() => null); 
-
+      });
+      
       clearTimeout(timeoutId);
 
-      if (response && response.ok) {
+      // Check content type to avoid parsing HTML (SPA fallback) as JSON
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") === -1) {
+        throw new Error("Received non-JSON response from server (likely HTML fallback).");
+      }
+
+      if (response.ok) {
         const data = await response.json();
         onLoginSuccess(data.token);
-        return;
-      }
-    } catch (err) {
-      console.error("Backend login failed", err);
-    }
-    */
-    // --- END SECURE LOGIN CODE ---
-
-    // Simple Immediate Local Auth for AI Studio
-    setTimeout(() => {
-      if (username === 'admin' && password === 'admin123') {
-        const mockToken = 'local-session-' + Math.random().toString(36).substr(2);
-        onLoginSuccess(mockToken);
+        return; 
+      } 
+      
+      // Handle known API errors
+      if (response.status === 401) {
+           setError('Invalid username or password.');
       } else {
-        setError('Invalid username or password.');
-        setIsLoading(false);
+           setError(`Server Error (${response.status}).`);
       }
-    }, 500); // Small delay for UX feel
+
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.log("Backend login failed:", err);
+      setError('Connection failed. Please use admin/admin123.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -110,13 +129,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           {isLoading && (
             <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
           )}
-          {isLoading ? 'BYPASSING TO DASHBOARD...' : 'SECURE LOGIN'}
+          {isLoading ? 'AUTHENTICATING...' : 'SECURE LOGIN'}
         </button>
       </form>
 
       <div className="mt-8 pt-8 border-t border-slate-100 text-center">
         <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest leading-relaxed">
-          Quick Access (AI Studio): <strong>admin</strong> / <strong>admin123</strong>
+          Default Admin: <strong>admin</strong> / <strong>admin123</strong>
         </p>
       </div>
     </div>
