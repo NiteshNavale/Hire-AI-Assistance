@@ -1,0 +1,8 @@
+{
+  "name": "HireAI: Streamlit Edition",
+  "description": "Python-powered AI recruitment portal with automated screening and proctored rounds.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
