@@ -128,10 +128,11 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
     {text}
     
     EVALUATION INSTRUCTIONS:
-    1. Check if the candidate matches the Minimum Experience. If they have less than {min_experience} years, the Score MUST be below 40.
-    2. Check if the candidate has the Mandatory Skills ({skills_required}). If they miss key skills, deduct points significantly.
-    3. Score from 0-100 based on strict evidence in the text.
-    4. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
+    1. Extract the total years of relevant experience from the resume as an integer.
+    2. Check if the candidate matches the Minimum Experience. If they have less than {min_experience} years, the Score MUST be below 40.
+    3. Check if the candidate has the Mandatory Skills ({skills_required}). If they miss key skills, deduct points significantly.
+    4. Score from 0-100 based on strict evidence in the text.
+    5. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
     """
     
     response = client.models.generate_content(
@@ -145,10 +146,11 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
                 'type': 'OBJECT',
                 'properties': {
                     'overallScore': {'type': 'INTEGER'},
+                    'years_experience': {'type': 'INTEGER', 'description': 'Total relevant years of experience extracted from resume'},
                     'summary': {'type': 'STRING'},
                     'technicalMatch': {'type': 'INTEGER'}
                 },
-                'required': ['overallScore', 'summary', 'technicalMatch']
+                'required': ['overallScore', 'years_experience', 'summary', 'technicalMatch']
             }
         )
     )
@@ -309,6 +311,7 @@ def view_candidate_portal():
                                 "status": "Screening",
                                 "score": analysis['overallScore'],
                                 "technical": analysis['technicalMatch'],
+                                "years_experience": analysis.get('years_experience', 0), # Save extracted experience
                                 "summary": analysis['summary'],
                                 "access_key": access_key,
                                 "date": datetime.now().strftime("%Y-%m-%d"),
@@ -356,6 +359,7 @@ def view_candidate_portal():
                 st.markdown(f"## {c['access_key']}")
                 st.caption("Use this Access Key to login to the interview portal.")
                 st.markdown(f"**Role:** {c['role']}")
+                st.markdown(f"**Experience:** {c.get('years_experience', 0)} Years")
                 st.markdown(f"**AI Score:** {c['score']}/100")
                 st.markdown("**Note:** This score is based strictly on the skills and experience required.")
                 
@@ -469,22 +473,49 @@ def view_hr_dashboard():
                             with c1:
                                 st.markdown(f"**{c['name']}**")
                                 st.caption(f"{c['role']}")
-                                st.caption(f"📧 {c['email']}")
+                                exp_years = c.get('years_experience', 0)
+                                st.caption(f"📅 Exp: {exp_years} Years")
+                                
                             with c2:
                                 st.markdown(f"**{c.get('score', 0)}/100**")
                                 with st.popover("Summary"):
                                     st.write(c.get('summary', 'No summary.'))
                             with c3:
-                                with st.popover("Schedule Exam"):
-                                    d = st.date_input("Date", key=f"d_{c['id']}")
-                                    t = st.time_input("Time", key=f"t_{c['id']}")
-                                    if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
-                                        c['aptitudeDate'] = d.strftime("%Y-%m-%d")
-                                        c['aptitudeTime'] = t.strftime("%H:%M")
-                                        c['status'] = 'Aptitude Scheduled'
-                                        database.save_candidate(c)
-                                        st.toast(f"Scheduled for {c['name']}")
-                                        st.rerun()
+                                # LOGIC: > 2 Years skips aptitude
+                                exp_years = c.get('years_experience', 0)
+                                if exp_years > 2:
+                                    st.success("Senior Candidate")
+                                    with st.popover("Schedule Interview"):
+                                        st.markdown("### 📅 Setup Interview (Skip Aptitude)")
+                                        r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
+                                        r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
+                                        st.divider()
+                                        st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
+                                        meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.google.com/...")
+                                        
+                                        if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
+                                            final_link = meet_link if meet_link else generate_meeting_link()
+                                            c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                            c['round2Time'] = r2t.strftime("%H:%M")
+                                            c['round2Link'] = final_link
+                                            c['status'] = 'Interview Scheduled'
+                                            database.save_candidate(c)
+                                            st.toast(f"Interview Scheduled for {c['name']}")
+                                            st.rerun()
+                                else:
+                                    # < 2 Years must take Aptitude
+                                    with st.popover("Schedule Exam"):
+                                        st.info("Junior: Aptitude Mandatory")
+                                        d = st.date_input("Date", key=f"d_{c['id']}")
+                                        t = st.time_input("Time", key=f"t_{c['id']}")
+                                        if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
+                                            c['aptitudeDate'] = d.strftime("%Y-%m-%d")
+                                            c['aptitudeTime'] = t.strftime("%H:%M")
+                                            c['status'] = 'Aptitude Scheduled'
+                                            database.save_candidate(c)
+                                            st.toast(f"Scheduled for {c['name']}")
+                                            st.rerun()
+                                
                                 if st.button("Archive", key=f"arc_{c['id']}"):
                                     c['archived'] = True
                                     database.save_candidate(c)
@@ -530,12 +561,14 @@ def view_hr_dashboard():
                                             r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
                                             r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
                                             st.divider()
-                                            st.caption("📧 Invite will be sent with Google Meet link.")
+                                            st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
+                                            meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.google.com/...")
+                                            
                                             if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
-                                                link = generate_meeting_link()
+                                                final_link = meet_link if meet_link else generate_meeting_link()
                                                 c['round2Date'] = r2d.strftime("%Y-%m-%d")
                                                 c['round2Time'] = r2t.strftime("%H:%M")
-                                                c['round2Link'] = link
+                                                c['round2Link'] = final_link
                                                 c['status'] = 'Interview Scheduled'
                                                 database.save_candidate(c)
                                                 st.toast(f"Invite Sent!", icon="📨")
