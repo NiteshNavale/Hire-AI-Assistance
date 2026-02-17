@@ -13,6 +13,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv  # Import dotenv
 import database  # Import the shared database module
+import email_service # Import email service
 
 # --- LOAD ENVIRONMENT VARIABLES ---
 # This ensures it works on local machines, VPS, and hosting panels using .env files
@@ -325,6 +326,23 @@ def view_candidate_portal():
                                 "archived": False
                             }
                             database.save_candidate(new_candidate)
+                            
+                            # --- SEND EMAIL NOTIFICATION ---
+                            email_body = f"""
+Dear {name},
+
+Thank you for applying for the position of {selected_role_title} at HireAI.
+
+Your application has been received and screened by our AI system.
+To track your status or take assessments, please login to the Candidate Portal.
+
+Your Access Key: {access_key}
+
+Best regards,
+HireAI Recruiting Team
+"""
+                            email_service.send_email(email, f"Application Received: {selected_role_title}", email_body)
+
                             st.balloons()
                             st.success("Profile Screened Successfully!")
                             st.session_state.last_submitted = new_candidate
@@ -500,6 +518,24 @@ def view_hr_dashboard():
                                             c['round2Link'] = final_link
                                             c['status'] = 'Interview Scheduled'
                                             database.save_candidate(c)
+                                            
+                                            # --- SEND EMAIL ---
+                                            email_body = f"""
+Dear {c['name']},
+
+We are pleased to invite you to the final interview for the {c['role']} position.
+
+Date: {c['round2Date']}
+Time: {c['round2Time']}
+Meeting Link: {c['round2Link']}
+
+Please join the link at the scheduled time.
+
+Best regards,
+HireAI Recruiting Team
+"""
+                                            email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                            
                                             st.toast(f"Interview Scheduled for {c['name']}")
                                             st.rerun()
                                 else:
@@ -513,6 +549,23 @@ def view_hr_dashboard():
                                             c['aptitudeTime'] = t.strftime("%H:%M")
                                             c['status'] = 'Aptitude Scheduled'
                                             database.save_candidate(c)
+                                            
+                                            # --- SEND EMAIL ---
+                                            email_body = f"""
+Dear {c['name']},
+
+You have been shortlisted for the Aptitude Assessment for the {c['role']} position.
+
+Date: {c['aptitudeDate']}
+Time: {c['aptitudeTime']}
+
+Please login to the Candidate Portal using your Access Key: {c['access_key']}
+
+Best regards,
+HireAI Recruiting Team
+"""
+                                            email_service.send_email(c['email'], "Aptitude Assessment Scheduled - HireAI", email_body)
+
                                             st.toast(f"Scheduled for {c['name']}")
                                             st.rerun()
                                 
@@ -571,6 +624,24 @@ def view_hr_dashboard():
                                                 c['round2Link'] = final_link
                                                 c['status'] = 'Interview Scheduled'
                                                 database.save_candidate(c)
+                                                
+                                                # --- SEND EMAIL ---
+                                                email_body = f"""
+Dear {c['name']},
+
+Congratulations! You passed the aptitude test and have been selected for the final interview.
+
+Date: {c['round2Date']}
+Time: {c['round2Time']}
+Meeting Link: {c['round2Link']}
+
+Please join the link at the scheduled time.
+
+Best regards,
+HireAI Recruiting Team
+"""
+                                                email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                                
                                                 st.toast(f"Invite Sent!", icon="📨")
                                                 time.sleep(1)
                                                 st.rerun()
@@ -689,6 +760,22 @@ def view_hr_dashboard():
                     if st.form_submit_button("Create User & Send Email", type="primary"):
                         if new_u and new_p and new_e:
                             if database.create_user(new_u, new_p, new_e):
+                                # --- SEND EMAIL ---
+                                email_body = f"""
+Hello {new_u},
+
+You have been granted recruiter access to the HireAI platform.
+
+Username: {new_u}
+Password: {new_p}
+
+Please login securely at the HR Portal.
+
+Best regards,
+HireAI Admin
+"""
+                                email_service.send_email(new_e, "HireAI Recruiter Access", email_body)
+                                
                                 st.success(f"User '{new_u}' created successfully.")
                                 st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
                                 time.sleep(1)
@@ -956,6 +1043,16 @@ def view_interview_room():
                     user['status'] = 'Aptitude Completed'
                     database.save_candidate(user)
                     st.session_state.active_user = user
+
+                    # --- SEND EMAIL (PASSED/FAILED) ---
+                    if final_percentage >= 50:
+                        subj = "Aptitude Test Passed - HireAI"
+                        body = f"Dear {user['name']},\n\nCongratulations! You have passed the aptitude assessment with a score of {final_percentage}%.\n\nOur team will review your profile and schedule the final interview shortly.\n\nBest regards,\nHireAI Recruiting Team"
+                    else:
+                        subj = "Application Update - HireAI"
+                        body = f"Dear {user['name']},\n\nThank you for completing the aptitude assessment.\n\nUnfortunately, your score of {final_percentage}% did not meet the required threshold for this role.\n\nWe encourage you to apply again after 6 months.\n\nBest regards,\nHireAI Recruiting Team"
+
+                    email_service.send_email(user['email'], subj, body)
                     
                     st.balloons()
                     st.rerun()
