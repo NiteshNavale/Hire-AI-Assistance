@@ -113,6 +113,7 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
     """
     Screens resume with temperature=0.0 and a fixed seed for deterministic results.
     Uses the specific Job Description provided by HR.
+    Includes Retry Logic for 429 Errors.
     """
     
     # Generate a deterministic integer seed from the content
@@ -143,26 +144,45 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
     5. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
     """
     
-    response = client.models.generate_content(
-        model='gemini-3-flash-preview',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.0, # CRITICAL: Zero temperature ensures consistent/deterministic results
-            seed=seed,       # CRITICAL: Fixed seed ensures reproducibility
-            response_mime_type='application/json',
-            response_schema={
-                'type': 'OBJECT',
-                'properties': {
-                    'overallScore': {'type': 'INTEGER'},
-                    'years_experience': {'type': 'INTEGER', 'description': 'Total relevant years of experience extracted from resume'},
-                    'summary': {'type': 'STRING'},
-                    'technicalMatch': {'type': 'INTEGER'}
-                },
-                'required': ['overallScore', 'years_experience', 'summary', 'technicalMatch']
-            }
-        )
-    )
-    return json.loads(response.text)
+    # Retry configuration
+    max_retries = 3
+    base_delay = 20 # Seconds (Generous wait to clear 429 quota)
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0, # CRITICAL: Zero temperature ensures consistent/deterministic results
+                    seed=seed,       # CRITICAL: Fixed seed ensures reproducibility
+                    response_mime_type='application/json',
+                    response_schema={
+                        'type': 'OBJECT',
+                        'properties': {
+                            'overallScore': {'type': 'INTEGER'},
+                            'years_experience': {'type': 'INTEGER', 'description': 'Total relevant years of experience extracted from resume'},
+                            'summary': {'type': 'STRING'},
+                            'technicalMatch': {'type': 'INTEGER'}
+                        },
+                        'required': ['overallScore', 'years_experience', 'summary', 'technicalMatch']
+                    }
+                )
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            error_msg = str(e)
+            # Check for Rate Limit (429) errors
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (attempt + 1)
+                    print(f"Quota exceeded (Attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                    st.toast(f"High AI Traffic. Retrying in {wait_time}s...", icon="⏳")
+                    time.sleep(wait_time)
+                    continue
+            
+            # If it's another error or we ran out of retries, raise it
+            raise e
 
 def generate_aptitude_questions(role):
     prompt = f"""
@@ -181,28 +201,45 @@ def generate_aptitude_questions(role):
     - 'correct_index' (integer 0-3)
     - 'category' (string)
     """
-    response = client.models.generate_content(
-        model='gemini-3-flash-preview',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type='application/json',
-            response_schema={
-                'type': 'ARRAY',
-                'items': {
-                    'type': 'OBJECT',
-                    'properties': {
-                        'id': {'type': 'INTEGER'},
-                        'question': {'type': 'STRING'},
-                        'options': {'type': 'ARRAY', 'items': {'type': 'STRING'}},
-                        'correct_index': {'type': 'INTEGER'},
-                        'category': {'type': 'STRING'}
-                    },
-                    'required': ['id', 'question', 'options', 'correct_index', 'category']
-                }
-            }
-        )
-    )
-    return json.loads(response.text)
+    
+    # Retry configuration
+    max_retries = 3
+    base_delay = 20
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type='application/json',
+                    response_schema={
+                        'type': 'ARRAY',
+                        'items': {
+                            'type': 'OBJECT',
+                            'properties': {
+                                'id': {'type': 'INTEGER'},
+                                'question': {'type': 'STRING'},
+                                'options': {'type': 'ARRAY', 'items': {'type': 'STRING'}},
+                                'correct_index': {'type': 'INTEGER'},
+                                'category': {'type': 'STRING'}
+                            },
+                            'required': ['id', 'question', 'options', 'correct_index', 'category']
+                        }
+                    }
+                )
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (attempt + 1)
+                    print(f"Quota exceeded (Attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                    st.toast(f"High AI Traffic. Retrying in {wait_time}s...", icon="⏳")
+                    time.sleep(wait_time)
+                    continue
+            raise e
 
 # --- VIEWS ---
 def sidebar_nav():
