@@ -319,11 +319,18 @@ def view_candidate_portal():
 
     with col2:
         if 'last_submitted' in st.session_state:
+            # FIX: Ensure submission_time exists to prevent AttributeError on page reload/state loss
+            if 'submission_time' not in st.session_state:
+                del st.session_state.last_submitted
+                st.rerun()
+                return
+
             # Check expiry (60 seconds)
             elapsed = time.time() - st.session_state.submission_time
             if elapsed > 60:
                 del st.session_state.last_submitted
-                del st.session_state.submission_time
+                if 'submission_time' in st.session_state:
+                    del st.session_state.submission_time
                 st.rerun()
                 return
 
@@ -343,7 +350,8 @@ def view_candidate_portal():
                 
                 if st.button("✅ I have copied the secret code", type="primary"):
                      del st.session_state.last_submitted
-                     del st.session_state.submission_time
+                     if 'submission_time' in st.session_state:
+                        del st.session_state.submission_time
                      st.rerun()
             
             # Trigger refresh for countdown
