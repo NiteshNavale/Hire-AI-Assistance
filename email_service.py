@@ -17,9 +17,8 @@ def get_config(key, default=None):
 
 def send_email(to_email, subject, body):
     """
-    Sends an email using credentials from Streamlit secrets or environment variables.
-    Returns True if successful, False otherwise.
-    If credentials are not set, it prints the email to the console (Mock Mode).
+    Sends an email using credentials.
+    Returns tuple: (success: bool, message: str)
     """
     # 1. Load config
     smtp_server = get_config("SMTP_SERVER", "smtp.gmail.com")
@@ -31,16 +30,14 @@ def send_email(to_email, subject, body):
     sender_email = get_config("SMTP_EMAIL")
     sender_password = get_config("SMTP_PASSWORD")
 
-    # 2. Validation / Mock Mode
+    # 2. Mock Mode (No credentials)
     if not sender_email or not sender_password:
         print(f"\n[MOCK EMAIL SERVICE]")
         print(f"To: {to_email}")
         print(f"Subject: {subject}")
-        print("-" * 20)
-        print(body)
-        print("-" * 20 + "\n")
-        return False
+        return False, "Mock Mode (Credentials missing)"
 
+    server = None
     try:
         # 3. Construct Message
         msg = MIMEMultipart()
@@ -49,14 +46,29 @@ def send_email(to_email, subject, body):
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
 
-        # 4. Connect and Send
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
+        # 4. Connect and Send (Robust Handling)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=15) # 15s timeout
+        server.ehlo() # Identify to server
+        server.starttls() # Encrypt
+        server.ehlo() # Re-identify after encryption
         server.login(sender_email, sender_password)
+        
         text = msg.as_string()
         server.sendmail(sender_email, to_email, text)
-        server.quit()
-        return True
+        
+        return True, "Email Sent Successfully"
+        
+    except smtplib.SMTPAuthenticationError:
+        return False, "Authentication Failed. Check App Password."
+    except smtplib.SMTPConnectError:
+        return False, "Connection Failed. Check Server/Port."
     except Exception as e:
-        print(f"Error sending email to {to_email}: {e}")
-        return False
+        print(f"Email Error: {e}")
+        return False, str(e)
+    finally:
+        # 5. CRITICAL: Always close connection to prevent blocking
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass

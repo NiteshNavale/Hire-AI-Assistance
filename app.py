@@ -333,7 +333,7 @@ Your Access Key: {access_key}
 Best regards,
 HireAI Recruiting Team
 """
-                            email_sent = email_service.send_email(email, f"Application Received: {selected_role_title}", email_body)
+                            email_sent, email_msg = email_service.send_email(email, f"Application Received: {selected_role_title}", email_body)
                             email_status = "Sent" if email_sent else "Failed"
 
                             new_candidate = {
@@ -355,7 +355,8 @@ HireAI Recruiting Team
                                 "round2Date": None,
                                 "round2Time": None,
                                 "round2Link": None,
-                                "email_status": email_status, # Track email status
+                                "email_status": email_status, 
+                                "email_error": email_msg if not email_sent else None,
                                 "archived": False
                             }
                             database.save_candidate(new_candidate)
@@ -364,7 +365,7 @@ HireAI Recruiting Team
                             if email_sent:
                                 st.success(f"Profile Screened! Email sent to {email}")
                             else:
-                                st.warning("Profile Screened, but email delivery failed. Check system logs.")
+                                st.error(f"Profile Screened, but email failed: {email_msg}")
                             
                             st.session_state.last_submitted = new_candidate
                             st.session_state.submission_time = time.time()
@@ -515,10 +516,17 @@ def view_hr_dashboard():
                                 exp_years = c.get('years_experience', 0)
                                 st.caption(f"📅 Exp: {exp_years} Years")
                                 
-                                # EMAIL STATUS
+                                # EMAIL STATUS WITH DEBUGGING
                                 email_status = c.get('email_status', 'Unknown')
-                                status_color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
-                                st.markdown(f"📧 Email: :{status_color}[{email_status}]")
+                                if email_status == "Failed":
+                                    st.markdown(f"📧 Email: :red[Failed]")
+                                    if c.get('email_error'):
+                                        with st.popover("Error Log"):
+                                            st.error(c['email_error'])
+                                            st.caption("Check .env/Secrets credentials.")
+                                else:
+                                    color = "green" if email_status == "Sent" else "grey"
+                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
                                 
                             with c2:
                                 st.markdown(f"**{c.get('score', 0)}/100**")
@@ -555,7 +563,7 @@ Please join the link at the scheduled time.
 Best regards,
 HireAI Recruiting Team
 """
-                                            email_sent = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                            email_sent, email_msg = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
                                             email_status = "Sent" if email_sent else "Failed"
 
                                             c['round2Date'] = r2d.strftime("%Y-%m-%d")
@@ -563,6 +571,7 @@ HireAI Recruiting Team
                                             c['round2Link'] = final_link
                                             c['status'] = 'Interview Scheduled'
                                             c['email_status'] = email_status
+                                            c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
                                             
                                             st.toast(f"Interview Scheduled for {c['name']} (Email: {email_status})")
@@ -589,13 +598,14 @@ Please login to the Candidate Portal using your Access Key: {c['access_key']}
 Best regards,
 HireAI Recruiting Team
 """
-                                            email_sent = email_service.send_email(c['email'], "Aptitude Assessment Scheduled - HireAI", email_body)
+                                            email_sent, email_msg = email_service.send_email(c['email'], "Aptitude Assessment Scheduled - HireAI", email_body)
                                             email_status = "Sent" if email_sent else "Failed"
 
                                             c['aptitudeDate'] = d.strftime("%Y-%m-%d")
                                             c['aptitudeTime'] = t.strftime("%H:%M")
                                             c['status'] = 'Aptitude Scheduled'
                                             c['email_status'] = email_status
+                                            c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
 
                                             st.toast(f"Scheduled for {c['name']} (Email: {email_status})")
@@ -626,8 +636,14 @@ HireAI Recruiting Team
                                 st.caption(c['role'])
                                 # EMAIL STATUS
                                 email_status = c.get('email_status', 'Unknown')
-                                status_color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
-                                st.markdown(f"📧 Email: :{status_color}[{email_status}]")
+                                if email_status == "Failed":
+                                    st.markdown(f"📧 Email: :red[Failed]")
+                                    if c.get('email_error'):
+                                        with st.popover("Error Log"):
+                                            st.error(c['email_error'])
+                                else:
+                                    color = "green" if email_status == "Sent" else "grey"
+                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
 
                             with c2:
                                 if c['status'] == 'Aptitude Scheduled':
@@ -672,7 +688,7 @@ Please join the link at the scheduled time.
 Best regards,
 HireAI Recruiting Team
 """
-                                                email_sent = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                                email_sent, email_msg = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
                                                 email_status = "Sent" if email_sent else "Failed"
 
                                                 c['round2Date'] = r2d.strftime("%Y-%m-%d")
@@ -680,6 +696,7 @@ HireAI Recruiting Team
                                                 c['round2Link'] = final_link
                                                 c['status'] = 'Interview Scheduled'
                                                 c['email_status'] = email_status
+                                                c['email_error'] = email_msg if not email_sent else None
                                                 database.save_candidate(c)
                                                 
                                                 st.toast(f"Invite Sent! (Email: {email_status})", icon="📨")
@@ -714,8 +731,14 @@ HireAI Recruiting Team
                                 st.caption(c['role'])
                                 # EMAIL STATUS
                                 email_status = c.get('email_status', 'Unknown')
-                                status_color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
-                                st.markdown(f"📧 Email: :{status_color}[{email_status}]")
+                                if email_status == "Failed":
+                                    st.markdown(f"📧 Email: :red[Failed]")
+                                    if c.get('email_error'):
+                                        with st.popover("Error Log"):
+                                            st.error(c['email_error'])
+                                else:
+                                    color = "green" if email_status == "Sent" else "grey"
+                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
                             with c2:
                                 st.markdown(f"📅 **{c['round2Date']}**")
                                 st.markdown(f"⏰ **{c['round2Time']}**")
@@ -818,10 +841,14 @@ Please login securely at the HR Portal.
 Best regards,
 HireAI Admin
 """
-                                email_service.send_email(new_e, "HireAI Recruiter Access", email_body)
+                                sent, msg = email_service.send_email(new_e, "HireAI Recruiter Access", email_body)
                                 
                                 st.success(f"User '{new_u}' created successfully.")
-                                st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
+                                if sent:
+                                    st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
+                                else:
+                                    st.error(f"Failed to send email: {msg}")
+
                                 time.sleep(1)
                                 st.rerun()
                             else:
@@ -1089,7 +1116,7 @@ def view_interview_room():
                         subj = "Application Update - HireAI"
                         body = f"Dear {user['name']},\n\nThank you for completing the aptitude assessment.\n\nUnfortunately, your score of {final_percentage}% did not meet the required threshold for this role.\n\nWe encourage you to apply again after 6 months.\n\nBest regards,\nHireAI Recruiting Team"
 
-                    email_sent = email_service.send_email(user['email'], subj, body)
+                    email_sent, email_msg = email_service.send_email(user['email'], subj, body)
                     email_status = "Sent" if email_sent else "Failed"
 
                     # Update Candidate in DB
@@ -1097,6 +1124,7 @@ def view_interview_room():
                     user['aptitude_details'] = details # Save details
                     user['status'] = 'Aptitude Completed'
                     user['email_status'] = email_status
+                    user['email_error'] = email_msg if not email_sent else None
                     database.save_candidate(user)
                     st.session_state.active_user = user
                     
