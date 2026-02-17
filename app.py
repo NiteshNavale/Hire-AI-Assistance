@@ -101,12 +101,12 @@ def generate_key():
 def generate_meeting_link():
     return f"https://meet.google.com/{''.join(random.choices(string.ascii_lowercase, k=3))}-{''.join(random.choices(string.ascii_lowercase, k=4))}-{''.join(random.choices(string.ascii_lowercase, k=3))}"
 
-def check_smtp_config():
-    """Checks if SMTP credentials are present."""
-    email = os.environ.get("SMTP_EMAIL")
-    if hasattr(st, "secrets") and "SMTP_EMAIL" in st.secrets:
-        email = st.secrets["SMTP_EMAIL"]
-    return email is not None
+def check_email_config():
+    """Checks if SendGrid credentials are present."""
+    api_key = os.environ.get("SENDGRID_API_KEY")
+    if hasattr(st, "secrets") and "SENDGRID_API_KEY" in st.secrets:
+        api_key = st.secrets["SENDGRID_API_KEY"]
+    return api_key is not None
 
 # --- AI LOGIC ---
 def screen_resume_ai(text, role_title, job_description, skills_required, min_experience):
@@ -221,13 +221,13 @@ def sidebar_nav():
         st.divider()
         st.caption("SYSTEM STATUS")
         
-        # SMTP Status Indicator
-        is_smtp_configured = check_smtp_config()
-        if is_smtp_configured:
-            st.markdown("📧 **Email Service**: :green[Active]")
+        # Email Status Indicator
+        is_email_configured = check_email_config()
+        if is_email_configured:
+            st.markdown("📧 **Email Service**: :green[Active] (SendGrid)")
         else:
             st.markdown("📧 **Email Service**: :red[Mock Mode]")
-            st.caption("Set SMTP_EMAIL in .env to enable real emails.")
+            st.caption("Set SENDGRID_API_KEY in .env")
 
         # Notifications
         if choice == "HR Dashboard" and st.session_state.hr_authenticated:

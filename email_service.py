@@ -1,8 +1,7 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
 import streamlit as st
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 def get_config(key, default=None):
     """
@@ -17,58 +16,44 @@ def get_config(key, default=None):
 
 def send_email(to_email, subject, body):
     """
-    Sends an email using credentials.
+    Sends an email using SendGrid API.
     Returns tuple: (success: bool, message: str)
     """
     # 1. Load config
-    smtp_server = get_config("SMTP_SERVER", "smtp.gmail.com")
-    try:
-        smtp_port = int(get_config("SMTP_PORT", 587))
-    except (ValueError, TypeError):
-        smtp_port = 587
-        
-    sender_email = get_config("SMTP_EMAIL")
-    sender_password = get_config("SMTP_PASSWORD")
+    api_key = get_config("SENDGRID_API_KEY")
+    from_email = get_config("FROM_EMAIL")
 
     # 2. Mock Mode (No credentials)
-    if not sender_email or not sender_password:
-        print(f"\n[MOCK EMAIL SERVICE]")
+    if not api_key or not from_email:
+        print(f"\n[MOCK EMAIL SERVICE - SENDGRID]")
         print(f"To: {to_email}")
         print(f"Subject: {subject}")
         return False, "Mock Mode (Credentials missing)"
 
-    server = None
     try:
         # 3. Construct Message
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        message = Mail(
+            from_email=from_email,
+            to_emails=to_email,
+            subject=subject,
+            plain_text_content=body
+        )
+        
+        # 4. Send via API
+        sg = SendGridAPIClient(api_key)
+        response = sg.send(message)
+        
+        # Check for 2xx status code
+        if 200 <= response.status_code < 300:
+            return True, "Email Sent Successfully"
+        else:
+            return False, f"Failed with status: {response.status_code}"
 
-        # 4. Connect and Send (Robust Handling)
-        server = smtplib.SMTP(smtp_server, smtp_port, timeout=15) # 15s timeout
-        server.ehlo() # Identify to server
-        server.starttls() # Encrypt
-        server.ehlo() # Re-identify after encryption
-        server.login(sender_email, sender_password)
-        
-        text = msg.as_string()
-        server.sendmail(sender_email, to_email, text)
-        
-        return True, "Email Sent Successfully"
-        
-    except smtplib.SMTPAuthenticationError:
-        return False, "Authentication Failed. Check App Password."
-    except smtplib.SMTPConnectError:
-        return False, "Connection Failed. Check Server/Port."
     except Exception as e:
-        print(f"Email Error: {e}")
-        return False, str(e)
-    finally:
-        # 5. CRITICAL: Always close connection to prevent blocking
-        if server:
-            try:
-                server.quit()
-            except Exception:
-                pass
+        # SendGrid specific exceptions usually contain a body
+        error_msg = str(e)
+        if hasattr(e, 'body'):
+            error_msg += f" Details: {e.body}"
+            
+        print(f"SendGrid Error: {error_msg}")
+        return False, error_msg
