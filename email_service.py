@@ -2,22 +2,34 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
+import streamlit as st
+
+def get_config(key, default=None):
+    """
+    Helper to get config from Streamlit secrets (priority) or Environment variables.
+    """
+    # 1. Check Streamlit Secrets (Best for Cloud)
+    if hasattr(st, "secrets") and key in st.secrets:
+        return st.secrets[key]
+    
+    # 2. Check Environment Variables (Best for Local .env)
+    return os.environ.get(key, default)
 
 def send_email(to_email, subject, body):
     """
-    Sends an email using credentials from environment variables.
+    Sends an email using credentials from Streamlit secrets or environment variables.
     Returns True if successful, False otherwise.
     If credentials are not set, it prints the email to the console (Mock Mode).
     """
     # 1. Load config
-    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_server = get_config("SMTP_SERVER", "smtp.gmail.com")
     try:
-        smtp_port = int(os.environ.get("SMTP_PORT", 587))
-    except ValueError:
+        smtp_port = int(get_config("SMTP_PORT", 587))
+    except (ValueError, TypeError):
         smtp_port = 587
         
-    sender_email = os.environ.get("SMTP_EMAIL")
-    sender_password = os.environ.get("SMTP_PASSWORD")
+    sender_email = get_config("SMTP_EMAIL")
+    sender_password = get_config("SMTP_PASSWORD")
 
     # 2. Validation / Mock Mode
     if not sender_email or not sender_password:
