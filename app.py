@@ -867,8 +867,14 @@ def view_hr_dashboard():
                                         r3d = st.date_input("Date", key=f"r3d_{c['id']}")
                                         r3t = st.time_input("Time", key=f"r3t_{c['id']}")
                                         
+                                        # Added Input field for Meeting Link
+                                        st.divider()
+                                        st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
+                                        meet_link = st.text_input("Meeting Link", key=f"lnk_r2_{c['id']}", placeholder="https://meet.google.com/...")
+                                        
                                         if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
-                                            new_link = generate_meeting_link()
+                                            # Use input link if provided, otherwise generate random
+                                            new_link = meet_link if meet_link else generate_meeting_link()
                                             
                                             c['round2Date'] = r3d.strftime("%Y-%m-%d")
                                             c['round2Time'] = r3t.strftime("%H:%M")
