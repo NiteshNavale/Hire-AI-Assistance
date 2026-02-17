@@ -280,8 +280,14 @@ def view_candidate_portal():
     with col1:
         with st.container(border=True):
             st.subheader("Application Form")
-            name = st.text_input("Full Name", placeholder="John Doe")
-            email = st.text_input("Email Address", placeholder="john@example.com")
+            
+            # Initialize session state for inputs if not present
+            if 'cp_name' not in st.session_state: st.session_state.cp_name = ""
+            if 'cp_email' not in st.session_state: st.session_state.cp_email = ""
+            if 'cp_uploader_key' not in st.session_state: st.session_state.cp_uploader_key = 0
+
+            name = st.text_input("Full Name", placeholder="John Doe", key="cp_name")
+            email = st.text_input("Email Address", placeholder="john@example.com", key="cp_email")
             
             # Dynamic Dropdown based on DB jobs
             job_options = {j['title']: j for j in current_jobs}
@@ -299,7 +305,12 @@ def view_candidate_portal():
                 st.markdown("---")
                 st.write(selected_job['description'])
 
-            resume = st.file_uploader("Upload Resume (TXT/PDF)", type=['txt', 'pdf'])
+            # File uploader with dynamic key for resetting
+            resume = st.file_uploader(
+                "Upload Resume (TXT/PDF)", 
+                type=['txt', 'pdf'],
+                key=f"resume_uploader_{st.session_state.cp_uploader_key}"
+            )
             
             if st.button("Submit Application", type="primary"):
                 if name and email and resume:
@@ -369,6 +380,18 @@ HireAI Recruiting Team
                             
                             st.session_state.last_submitted = new_candidate
                             st.session_state.submission_time = time.time()
+                            
+                            # --- CLEAR FORM INPUTS ---
+                            # Reset text inputs by updating key values in session state (hack for reruns)
+                            # Actually, for next rerun, we just delete values.
+                            del st.session_state.cp_name
+                            del st.session_state.cp_email
+                            # Increment uploader key to reset it
+                            st.session_state.cp_uploader_key += 1
+                            
+                            # Trigger rerun to show empty form + result panel
+                            st.rerun()
+
                         except Exception as e:
                             st.error(f"Error processing application: {e}")
                 else:
@@ -755,27 +778,46 @@ HireAI Recruiting Team
         st.subheader("Manage Job Descriptions")
         st.markdown("Add roles with specific skills and experience requirements. The AI will strictly use these for screening.")
         
+        # Predefined common skills list
+        common_skills = [
+            "Python", "Java", ".NET", ".NET Core", "C#", "JavaScript", "TypeScript", "React", "Angular", "Vue.js",
+            "Node.js", "Django", "Flask", "FastAPI", "Spring Boot", "SQL", "PostgreSQL", "MongoDB", "AWS", "Azure",
+            "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "Machine Learning", "Data Analysis"
+        ]
+
+        # Use session state for "Create Job" inputs to allow clearing
+        if 'new_job_title' not in st.session_state: st.session_state.new_job_title = ""
+        if 'new_job_exp' not in st.session_state: st.session_state.new_job_exp = 2
+        if 'new_job_skills' not in st.session_state: st.session_state.new_job_skills = []
+        if 'new_job_desc' not in st.session_state: st.session_state.new_job_desc = ""
+
         with st.form("add_job_form"):
             col_j1, col_j2 = st.columns([1, 1])
             with col_j1:
-                new_title = st.text_input("Job Title", placeholder="e.g. Senior Backend Engineer")
+                new_title = st.text_input("Job Title", placeholder="e.g. Senior Backend Engineer", key="new_job_title")
             with col_j2:
-                new_exp = st.number_input("Minimum Experience (Years)", min_value=0, max_value=20, step=1, value=2)
+                new_exp = st.number_input("Minimum Experience (Years)", min_value=0, max_value=20, step=1, key="new_job_exp")
 
-            # Predefined common skills list + dynamic addition
-            common_skills = [
-                "Python", "Java", ".NET", ".NET Core", "C#", "JavaScript", "TypeScript", "React", "Angular", "Vue.js",
-                "Node.js", "Django", "Flask", "FastAPI", "Spring Boot", "SQL", "PostgreSQL", "MongoDB", "AWS", "Azure",
-                "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "Machine Learning", "Data Analysis"
-            ]
-            new_skills = st.multiselect("Required Skills (Select all that apply)", options=common_skills)
+            new_skills = st.multiselect("Required Skills (Select all that apply)", options=common_skills, key="new_job_skills")
             
-            new_desc = st.text_area("Detailed Job Description", height=200, placeholder="Paste the full job description here. Include culture, soft skills, and day-to-day responsibilities.")
+            new_desc = st.text_area("Detailed Job Description", height=200, placeholder="Paste the full job description here. Include culture, soft skills, and day-to-day responsibilities.", key="new_job_desc")
             
             if st.form_submit_button("Create Job Posting", type="primary"):
-                if new_title and new_desc and new_skills:
-                    database.save_job(new_title, new_desc, new_skills, new_exp)
-                    st.success(f"Job '{new_title}' created successfully!")
+                if st.session_state.new_job_title and st.session_state.new_job_desc and st.session_state.new_job_skills:
+                    database.save_job(
+                        st.session_state.new_job_title, 
+                        st.session_state.new_job_desc, 
+                        st.session_state.new_job_skills, 
+                        st.session_state.new_job_exp
+                    )
+                    st.success(f"Job '{st.session_state.new_job_title}' created successfully!")
+                    
+                    # Clear inputs
+                    del st.session_state.new_job_title
+                    del st.session_state.new_job_exp
+                    del st.session_state.new_job_skills
+                    del st.session_state.new_job_desc
+                    
                     st.rerun()
                 else:
                     st.error("Please fill in Job Title, Skills, and Description.")
@@ -802,7 +844,35 @@ HireAI Recruiting Team
                         
                         with st.expander("Show Detailed Description"):
                             st.write(job['description'])
+                            
                     with col_j2:
+                        # --- EDIT JOB FUNCTIONALITY ---
+                        with st.popover("Edit"):
+                            st.markdown("### Edit Job")
+                            # Pre-fill with existing values
+                            edit_title = st.text_input("Title", value=job['title'], key=f"edit_t_{job['id']}")
+                            edit_exp = st.number_input("Min Exp", value=job.get('min_experience', 0), min_value=0, key=f"edit_e_{job['id']}")
+                            
+                            # Handle skills mapping for multiselect
+                            existing_skills = job.get('skills', '').split(',') if job.get('skills') else []
+                            # Ensure existing skills are in options to avoid errors, or filter valid ones
+                            valid_default_skills = [s for s in existing_skills if s in common_skills]
+                            
+                            edit_skills = st.multiselect(
+                                "Skills", 
+                                options=common_skills, 
+                                default=valid_default_skills, 
+                                key=f"edit_s_{job['id']}"
+                            )
+                            
+                            edit_desc = st.text_area("Description", value=job['description'], height=150, key=f"edit_d_{job['id']}")
+                            
+                            if st.button("Update Job", key=f"btn_upd_{job['id']}", type="primary"):
+                                database.update_job(job['id'], edit_title, edit_desc, edit_skills, edit_exp)
+                                st.success("Job updated!")
+                                st.rerun()
+
+                        # DELETE BUTTON
                         if st.button("Delete", key=f"del_job_{job['id']}"):
                             database.delete_job(job['id'])
                             st.rerun()
@@ -818,6 +888,12 @@ HireAI Recruiting Team
             st.markdown("Create accounts for other recruiters. The system will simulate sending credentials via email.")
             with st.container(border=True):
                 st.markdown("### Add New Recruiter")
+                
+                # Use session state for clearing inputs
+                if 'new_u_input' not in st.session_state: st.session_state.new_u_input = ""
+                if 'new_e_input' not in st.session_state: st.session_state.new_e_input = ""
+                if 'new_p_input' not in st.session_state: st.session_state.new_p_input = ""
+
                 with st.form("add_hr_form"):
                     c1, c2, c3 = st.columns(3)
                     new_u = c1.text_input("Username", placeholder="j.doe", key="new_u_input")
@@ -825,34 +901,39 @@ HireAI Recruiting Team
                     new_p = c3.text_input("Password", type="password", placeholder="Secret123", key="new_p_input")
                     
                     if st.form_submit_button("Create User & Send Email", type="primary"):
-                        if new_u and new_p and new_e:
-                            if database.create_user(new_u, new_p, new_e):
+                        if st.session_state.new_u_input and st.session_state.new_p_input and st.session_state.new_e_input:
+                            if database.create_user(st.session_state.new_u_input, st.session_state.new_p_input, st.session_state.new_e_input):
                                 # --- SEND EMAIL ---
                                 email_body = f"""
-Hello {new_u},
+Hello {st.session_state.new_u_input},
 
 You have been granted recruiter access to the HireAI platform.
 
-Username: {new_u}
-Password: {new_p}
+Username: {st.session_state.new_u_input}
+Password: {st.session_state.new_p_input}
 
 Please login securely at the HR Portal.
 
 Best regards,
 HireAI Admin
 """
-                                sent, msg = email_service.send_email(new_e, "HireAI Recruiter Access", email_body)
+                                sent, msg = email_service.send_email(st.session_state.new_e_input, "HireAI Recruiter Access", email_body)
                                 
-                                st.success(f"User '{new_u}' created successfully.")
+                                st.success(f"User '{st.session_state.new_u_input}' created successfully.")
                                 if sent:
-                                    st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
+                                    st.toast(f"📧 Credentials sent to {st.session_state.new_e_input}", icon="✅")
                                 else:
                                     st.error(f"Failed to send email: {msg}")
-
+                                
+                                # Clear inputs
+                                del st.session_state.new_u_input
+                                del st.session_state.new_e_input
+                                del st.session_state.new_p_input
+                                
                                 time.sleep(1)
                                 st.rerun()
                             else:
-                                st.error(f"Username '{new_u}' already exists.")
+                                st.error(f"Username '{st.session_state.new_u_input}' already exists.")
                         else:
                             st.warning("All fields are required.")
         else:

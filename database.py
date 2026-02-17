@@ -1,4 +1,3 @@
-
 import sqlite3
 import json
 import os
@@ -192,6 +191,22 @@ def save_job(title, description, skills=None, min_experience=0):
     conn.commit()
     conn.close()
     return job_id
+
+def update_job(job_id, title, description, skills=None, min_experience=0):
+    """Update an existing job posting."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    
+    # Convert list of skills to comma-separated string if needed
+    skills_str = skills if isinstance(skills, str) else ",".join(skills) if skills else ""
+    
+    c.execute(
+        "UPDATE jobs SET title = ?, description = ?, skills = ?, min_experience = ? WHERE id = ?", 
+        (title, description, skills_str, min_experience, job_id)
+    )
+    conn.commit()
+    conn.close()
+    return True
 
 def delete_job(job_id):
     """Delete a job posting."""
