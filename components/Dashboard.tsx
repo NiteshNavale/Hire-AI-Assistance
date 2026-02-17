@@ -33,7 +33,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     { label: 'Round 2 Set', value: realCandidates.filter(c => c.status === 'Interview Scheduled').length.toString() }
   ];
 
-  const handleScheduleConfirm = (id: string, date: string, time: string, type: 'aptitude'|'interview') => {
+  const handleScheduleConfirm = (id: string, date: string, time: string, type: 'aptitude'|'interview', link?: string) => {
     const candidate = candidates.find(c => c.id === id);
     if (!candidate) return;
 
@@ -45,14 +45,14 @@ const Dashboard: React.FC<DashboardProps> = ({
         });
         setToast({ msg: `Aptitude Exam scheduled for ${date} at ${time}. Email sent.`, type: 'success' });
     } else {
-        const link = `https://meet.google.com/abc-${Math.random().toString(36).substr(2, 4)}-xyz`;
+        const finalLink = link || `https://meet.google.com/gen-${Math.random().toString(36).substr(2, 4)}`;
         onUpdateCandidate(id, { 
             status: 'Interview Scheduled', 
             round2Date: date, 
             round2Time: time,
-            round2Link: link
+            round2Link: finalLink
         });
-        setToast({ msg: `Round 2 Interview scheduled. Meeting link generated.`, type: 'success' });
+        setToast({ msg: `Interview scheduled. Invite sent with link: ${finalLink}`, type: 'success' });
     }
     
     setScheduleModalOpen(null);
@@ -207,7 +207,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 onClick={() => setScheduleModalOpen({candidate: c, type: 'interview'})}
                                 className="text-[10px] font-black bg-purple-600 text-white px-5 py-2.5 rounded-xl hover:bg-purple-700 shadow-xl shadow-purple-50 transition-all active:scale-95 uppercase tracking-widest"
                               >
-                                Schedule Round 2
+                                Schedule Interview
                               </button>
                             ) : (
                               <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-2.5 rounded-xl uppercase tracking-widest">

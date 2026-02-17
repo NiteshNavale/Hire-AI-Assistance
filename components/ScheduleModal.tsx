@@ -6,12 +6,20 @@ interface ScheduleModalProps {
   candidate: Candidate;
   type: 'aptitude' | 'interview';
   onClose: () => void;
-  onSchedule: (id: string, date: string, time: string, type: 'aptitude' | 'interview') => void;
+  onSchedule: (id: string, date: string, time: string, type: 'aptitude' | 'interview', meetingLink?: string) => void;
 }
 
 const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose, onSchedule }) => {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [meetingLink, setMeetingLink] = useState('');
+
+  const generateLink = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const part = (len: number) => Array.from({length: len}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const link = `https://meet.google.com/${part(3)}-${part(4)}-${part(3)}`;
+    setMeetingLink(link);
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
@@ -20,7 +28,7 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose,
           <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
             {type === 'aptitude' ? '📝' : '🤝'}
           </div>
-          <h3 className="text-xl font-black">{type === 'aptitude' ? 'Schedule Aptitude Exam' : 'Schedule Final Interview'}</h3>
+          <h3 className="text-xl font-black">{type === 'aptitude' ? 'Schedule Aptitude Exam' : 'Schedule Interview'}</h3>
           <p className="text-white/80 text-sm mt-1">Candidate: {candidate.name}</p>
         </div>
 
@@ -44,11 +52,33 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose,
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
+
+            {type === 'interview' && (
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Meeting Link</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text"
+                    value={meetingLink}
+                    onChange={e => setMeetingLink(e.target.value)}
+                    placeholder="https://meet.google.com/..."
+                    className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                  />
+                  <button 
+                    onClick={generateLink}
+                    className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors font-bold"
+                    title="Generate Google Meet Link"
+                  >
+                    ⚡
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
             <p className="text-xs text-slate-600 leading-relaxed font-medium">
-              Note: Automated email will be sent to <strong>{candidate.email}</strong> with {type === 'aptitude' ? 'exam access instructions' : 'meeting link'}.
+              Note: Automated email will be sent to <strong>{candidate.email}</strong> with {type === 'aptitude' ? 'exam access instructions' : 'the meeting link above'}.
             </p>
           </div>
 
@@ -60,8 +90,8 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose,
               Cancel
             </button>
             <button 
-              disabled={!date || !time}
-              onClick={() => onSchedule(candidate.id, date, time, type)}
+              disabled={!date || !time || (type === 'interview' && !meetingLink)}
+              onClick={() => onSchedule(candidate.id, date, time, type, meetingLink)}
               className={`flex-2 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 disabled:bg-slate-300 ${
                   type === 'aptitude' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-100'
               }`}
