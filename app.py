@@ -317,6 +317,9 @@ def view_hr_dashboard():
                         st.markdown(f"**{c['name']}**")
                         st.caption(f"{c['role']}")
                         st.caption(f"📧 {c['email']}")
+                        # Display Access Key for HR to copy
+                        st.caption("Access Key:")
+                        st.code(c.get('access_key'), language="text")
                     
                     # 2. Stage/Status
                     with col_s:
@@ -333,6 +336,14 @@ def view_hr_dashboard():
                     # 3. Scores
                     with col_sc:
                         st.markdown(f"Resume: **{c.get('score', 0)}**")
+                        
+                        # AI Reasoning Popover
+                        with st.popover("Why this score?"):
+                            st.markdown(f"### Assessment for {c['name']}")
+                            st.info(c.get('summary', 'No summary available.'))
+                            if c.get('technical'):
+                                st.markdown(f"**Technical Match:** {c.get('technical')}/100")
+                        
                         if c.get('aptitude_score') is not None:
                             st.markdown(f"Aptitude: **{c['aptitude_score']}**")
                         else:
