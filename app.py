@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import random
 import string
 import uuid
+import importlib
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv  # Import dotenv
@@ -16,6 +17,10 @@ import database  # Import the shared database module
 # --- LOAD ENVIRONMENT VARIABLES ---
 # This ensures it works on local machines, VPS, and hosting panels using .env files
 load_dotenv()
+
+# Force reload of database module to pick up schema changes/new functions
+# This fixes the "AttributeError: module 'database' has no attribute 'get_jobs'"
+importlib.reload(database)
 
 # --- PREMIUM UI CONFIGURATION ---
 st.set_page_config(
@@ -93,9 +98,15 @@ def generate_meeting_link():
 # --- AI LOGIC ---
 def screen_resume_ai(text, role_title, job_description):
     """
-    Screens resume with temperature=0.0 for deterministic results.
+    Screens resume with temperature=0.0 and a fixed seed for deterministic results.
     Uses the specific Job Description provided by HR.
     """
+    
+    # Generate a deterministic integer seed from the content
+    # This ensures that the same Resume + JD always results in the same AI evaluation
+    seed_str = f"{text[:100]}{job_description[:100]}{len(text)}"
+    seed = sum(ord(char) for char in seed_str)
+
     prompt = f"""
     You are a strict technical recruiter. 
     Evaluate the following Resume against the Job Description.
@@ -119,6 +130,7 @@ def screen_resume_ai(text, role_title, job_description):
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.0, # CRITICAL: Zero temperature ensures consistent/deterministic results
+            seed=seed,       # CRITICAL: Fixed seed ensures reproducibility
             response_mime_type='application/json',
             response_schema={
                 'type': 'OBJECT',
