@@ -411,7 +411,10 @@ HireAI Recruiting Team
                             
                             st.balloons()
                             if email_sent:
-                                st.success(f"Profile Screened! Email sent to {email}")
+                                if "Simulated" in email_msg:
+                                    st.warning(f"Profile Screened! {email_msg} - Credentials logged to Console")
+                                else:
+                                    st.success(f"Profile Screened! Email sent to {email}")
                             else:
                                 st.error(f"Profile Screened, but email failed: {email_msg}")
                             
