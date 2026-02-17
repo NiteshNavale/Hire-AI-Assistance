@@ -639,27 +639,33 @@ def view_hr_dashboard():
     # --- TEAM MANAGEMENT TAB ---
     with tab_team:
         st.subheader("Manage HR Team")
-        st.markdown("Create accounts for other recruiters. The system will simulate sending credentials via email.")
         
-        with st.container(border=True):
-            st.markdown("### Add New Recruiter")
-            with st.form("add_hr_form"):
-                c1, c2, c3 = st.columns(3)
-                new_u = c1.text_input("Username", placeholder="j.doe", key="new_u_input")
-                new_e = c2.text_input("Email", placeholder="j.doe@company.com", key="new_e_input")
-                new_p = c3.text_input("Password", type="password", placeholder="Secret123", key="new_p_input")
-                
-                if st.form_submit_button("Create User & Send Email", type="primary"):
-                    if new_u and new_p and new_e:
-                        if database.create_user(new_u, new_p, new_e):
-                            st.success(f"User '{new_u}' created successfully.")
-                            st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
-                            time.sleep(1)
-                            st.rerun()
+        # Check permissions
+        is_super_admin = st.session_state.hr_username == "admin"
+        
+        if is_super_admin:
+            st.markdown("Create accounts for other recruiters. The system will simulate sending credentials via email.")
+            with st.container(border=True):
+                st.markdown("### Add New Recruiter")
+                with st.form("add_hr_form"):
+                    c1, c2, c3 = st.columns(3)
+                    new_u = c1.text_input("Username", placeholder="j.doe", key="new_u_input")
+                    new_e = c2.text_input("Email", placeholder="j.doe@company.com", key="new_e_input")
+                    new_p = c3.text_input("Password", type="password", placeholder="Secret123", key="new_p_input")
+                    
+                    if st.form_submit_button("Create User & Send Email", type="primary"):
+                        if new_u and new_p and new_e:
+                            if database.create_user(new_u, new_p, new_e):
+                                st.success(f"User '{new_u}' created successfully.")
+                                st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(f"Username '{new_u}' already exists.")
                         else:
-                            st.error(f"Username '{new_u}' already exists.")
-                    else:
-                        st.warning("All fields are required.")
+                            st.warning("All fields are required.")
+        else:
+             st.info("Team management is restricted to Super Admin. You have read-only access to the team list.")
 
         st.markdown("### Existing Users")
         
@@ -677,25 +683,29 @@ def view_hr_dashboard():
                 c2.caption(u.get('email', 'No Email'))
                 
                 with c3:
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        with st.popover("Edit"):
-                            st.markdown(f"**Edit {u['username']}**")
-                            ed_email = st.text_input("Email", value=u.get('email', ''), key=f"e_{u['username']}")
-                            ed_pass = st.text_input("New Password", type="password", key=f"p_{u['username']}", help="Leave blank to keep current")
-                            if st.button("Update", key=f"upd_{u['username']}"):
-                                final_pass = ed_pass if ed_pass else u['password']
-                                database.update_user(u['username'], ed_email, final_pass)
-                                st.success("Updated!")
-                                st.rerun()
-                    
-                    with col_b:
-                        if u['username'] != 'admin' and u['username'] != st.session_state.active_user:
-                             if st.button("🗑️", key=f"del_{u['username']}", help="Delete User"):
-                                 database.delete_user(u['username'])
-                                 st.rerun()
-                        elif u['username'] == 'admin':
-                             st.caption("Admin")
+                    # ONLY ADMIN CAN EDIT/DELETE
+                    if is_super_admin:
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            with st.popover("Edit"):
+                                st.markdown(f"**Edit {u['username']}**")
+                                ed_email = st.text_input("Email", value=u.get('email', ''), key=f"e_{u['username']}")
+                                ed_pass = st.text_input("New Password", type="password", key=f"p_{u['username']}", help="Leave blank to keep current")
+                                if st.button("Update", key=f"upd_{u['username']}"):
+                                    final_pass = ed_pass if ed_pass else u['password']
+                                    database.update_user(u['username'], ed_email, final_pass)
+                                    st.success("Updated!")
+                                    st.rerun()
+                        
+                        with col_b:
+                            if u['username'] != 'admin':
+                                if st.button("🗑️", key=f"del_{u['username']}", help="Delete User"):
+                                    database.delete_user(u['username'])
+                                    st.rerun()
+                            elif u['username'] == 'admin':
+                                st.caption("Super Admin")
+                    else:
+                        st.caption("View Only")
 
     # --- ARCHIVED TAB ---
     with tab_archived:
