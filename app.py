@@ -299,6 +299,7 @@ def view_candidate_portal():
                                 "access_key": access_key,
                                 "date": datetime.now().strftime("%Y-%m-%d"),
                                 "aptitude_score": None,
+                                "aptitude_details": None, # Store detailed results
                                 "aptitudeDate": None,
                                 "aptitudeTime": None,
                                 "round2Date": None,
@@ -310,6 +311,7 @@ def view_candidate_portal():
                             st.balloons()
                             st.success("Profile Screened Successfully!")
                             st.session_state.last_submitted = new_candidate
+                            st.session_state.submission_time = time.time()
                         except Exception as e:
                             st.error(f"Error processing application: {e}")
                 else:
@@ -317,7 +319,17 @@ def view_candidate_portal():
 
     with col2:
         if 'last_submitted' in st.session_state:
+            # Check expiry (60 seconds)
+            elapsed = time.time() - st.session_state.submission_time
+            if elapsed > 60:
+                del st.session_state.last_submitted
+                del st.session_state.submission_time
+                st.rerun()
+                return
+
             c = st.session_state.last_submitted
+            remaining = int(60 - elapsed)
+            
             with st.container(border=True):
                 st.info("Please save your credentials")
                 st.markdown(f"## {c['access_key']}")
@@ -325,6 +337,18 @@ def view_candidate_portal():
                 st.markdown(f"**Role:** {c['role']}")
                 st.markdown(f"**AI Score:** {c['score']}/100")
                 st.markdown("**Note:** This score is based strictly on the skills and experience required.")
+                
+                st.divider()
+                st.error(f"This screen will close in {remaining} seconds.")
+                
+                if st.button("✅ I have copied the secret code", type="primary"):
+                     del st.session_state.last_submitted
+                     del st.session_state.submission_time
+                     st.rerun()
+            
+            # Trigger refresh for countdown
+            time.sleep(1)
+            st.rerun()
 
 def view_hr_dashboard():
     st.title("Recruiter Command Center")
@@ -414,7 +438,11 @@ def view_hr_dashboard():
                                     st.markdown(f"**Technical Match:** {c.get('technical')}/100")
                             
                             if c.get('aptitude_score') is not None:
-                                st.markdown(f"Aptitude: **{c['aptitude_score']}**")
+                                score = c['aptitude_score']
+                                outcome = "PASS" if score >= 50 else "FAIL"
+                                outcome_color = "green" if score >= 50 else "red"
+                                st.markdown(f"Aptitude: **{score}%**")
+                                st.markdown(f":{outcome_color}[{outcome}]")
                             else:
                                 st.markdown("Aptitude: --")
 
@@ -521,21 +549,50 @@ def view_hr_dashboard():
         if not archived_candidates:
             st.info("No archived candidates.")
         else:
-            for c in archived_candidates:
-                with st.container(border=True):
-                    col_ac, col_as, col_arest = st.columns([3, 2, 1])
-                    with col_ac:
-                        st.markdown(f"**{c['name']}** (Archived)")
-                        st.caption(f"{c['role']}")
-                    with col_as:
-                        st.caption(f"Last Status: {c['status']}")
-                        st.caption(f"Score: {c.get('score', 0)}")
-                    with col_arest:
-                        if st.button("Restore", key=f"restore_{c['id']}"):
-                            c['archived'] = False
-                            database.save_candidate(c)
-                            st.toast(f"Restored {c['name']}")
-                            st.rerun()
+            with st.form("archive_management"):
+                st.write("Select candidates to manage.")
+                
+                selected_for_delete = []
+                
+                # Header
+                col_h1, col_h2, col_h3 = st.columns([0.5, 4, 1.5])
+                col_h1.markdown("**Select**")
+                col_h2.markdown("**Candidate**")
+                col_h3.markdown("**Stats**")
+                
+                for c in archived_candidates:
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([0.5, 4, 1.5])
+                        with c1:
+                            if st.checkbox("", key=f"del_{c['id']}"):
+                                selected_for_delete.append(c['id'])
+                        with c2:
+                            st.markdown(f"**{c['name']}**")
+                            st.caption(f"{c['role']}")
+                        with c3:
+                            st.caption(f"Score: {c.get('score', 0)}")
+                            st.caption(f"{c['status']}")
+                
+                st.divider()
+                col_actions_1, col_actions_2 = st.columns([1, 1])
+                with col_actions_1:
+                    restore_pressed = st.form_submit_button("Restore Selected")
+                with col_actions_2:
+                    delete_pressed = st.form_submit_button("Delete Selected (Permanent)", type="primary")
+
+                if restore_pressed and selected_for_delete:
+                    for cid in selected_for_delete:
+                        cand = next((x for x in candidates if x['id'] == cid), None)
+                        if cand:
+                            cand['archived'] = False
+                            database.save_candidate(cand)
+                    st.success(f"Restored {len(selected_for_delete)} candidates.")
+                    st.rerun()
+                
+                if delete_pressed and selected_for_delete:
+                     database.bulk_delete_candidates(selected_for_delete)
+                     st.success(f"Permanently deleted {len(selected_for_delete)} records.")
+                     st.rerun()
 
 def view_interview_room():
     if not st.session_state.active_user:
@@ -592,9 +649,61 @@ def view_interview_room():
         # --- VIEW 3: COMPLETED STATE ---
         if user.get('aptitude_score') is not None:
              with st.container(border=True):
-                 st.header("Exam Submitted")
-                 st.metric("Final Score", f"{user['aptitude_score']}%")
-                 st.info("Thank you. HR is reviewing your results.")
+                 st.header("Exam Results")
+                 
+                 # Score and Pass/Fail Status
+                 score = user['aptitude_score']
+                 is_passed = score >= 50
+                 
+                 col1, col2 = st.columns(2)
+                 with col1:
+                     st.metric("Final Score", f"{score}%")
+                 with col2:
+                     if is_passed:
+                         st.success("Result: PASS")
+                         st.caption("You have qualified for the next round.")
+                     else:
+                         st.error("Result: FAIL")
+                         st.caption("You did not meet the required threshold.")
+                 
+                 st.divider()
+                 st.subheader("Detailed Review")
+                 
+                 details = user.get('aptitude_details')
+                 if details:
+                     questions_data = details.get('questions', [])
+                     answers_data = details.get('answers', {})
+                     
+                     # Convert keys to int if they are strings (JSON serialization)
+                     answers_data = {int(k): v for k, v in answers_data.items()}
+
+                     for i, q in enumerate(questions_data):
+                         user_selected = answers_data.get(i)
+                         correct_option = q['options'][q['correct_index']]
+                         is_correct = user_selected == correct_option
+                         
+                         with st.expander(f"Q{i+1}: {q['question']} - {'✅' if is_correct else '❌'}", expanded=not is_correct):
+                             st.write(f"**Category:** {q['category']}")
+                             
+                             for opt in q['options']:
+                                 prefix = "⚪ "
+                                 
+                                 if opt == correct_option:
+                                     prefix = "✅ "
+                                 elif opt == user_selected and not is_correct:
+                                     prefix = "❌ "
+                                 elif opt == user_selected and is_correct:
+                                     prefix = "✅ "
+                                     
+                                 # Streamlit markdown specific coloring
+                                 if opt == correct_option:
+                                     st.markdown(f":green[**{prefix}{opt}**] (Correct Answer)")
+                                 elif opt == user_selected:
+                                     st.markdown(f":red[**{prefix}{opt}**] (Your Answer)")
+                                 else:
+                                     st.markdown(f"{prefix}{opt}")
+                 else:
+                     st.info("Detailed results not available for this session.")
              return
 
         # --- VIEW 4: EXAM INTERFACE ---
@@ -628,6 +737,12 @@ def view_interview_room():
                 
                 if st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary"):
                     score = 0
+                    # Capture detailed results
+                    details = {
+                        "questions": questions,
+                        "answers": user_answers # Map of index -> selected option string
+                    }
+                    
                     for i, q in enumerate(questions):
                         selected_option = user_answers.get(i)
                         try:
@@ -641,6 +756,7 @@ def view_interview_room():
                     
                     # Update Candidate in DB
                     user['aptitude_score'] = final_percentage
+                    user['aptitude_details'] = details # Save details
                     user['status'] = 'Aptitude Completed'
                     database.save_candidate(user)
                     st.session_state.active_user = user

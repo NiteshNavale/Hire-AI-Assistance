@@ -169,5 +169,18 @@ def delete_job(job_id):
     conn.commit()
     conn.close()
 
+def bulk_delete_candidates(candidate_ids):
+    """Delete multiple candidates by ID."""
+    if not candidate_ids:
+        return
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    # Create placeholders for the list
+    placeholders = ','.join('?' * len(candidate_ids))
+    sql = f"DELETE FROM candidates WHERE id IN ({placeholders})"
+    c.execute(sql, candidate_ids)
+    conn.commit()
+    conn.close()
+
 # Init DB when imported to ensure file exists immediately
 init_db()
