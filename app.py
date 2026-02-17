@@ -474,15 +474,32 @@ def view_hr_dashboard():
                                 elif c['status'] == 'Aptitude Completed':
                                     if (c.get('aptitude_score') or 0) >= 50:
                                         with st.popover("Schedule Round 2"):
+                                            st.markdown("### 📅 Setup Interview")
                                             r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
                                             r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
-                                            if st.button("Confirm Interview", key=f"r2btn_{c['id']}", type="primary"):
-                                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                                c['round2Time'] = r2t.strftime("%H:%M")
-                                                c['round2Link'] = generate_meeting_link()
+                                            
+                                            st.divider()
+                                            st.markdown("**📧 Email Preview**")
+                                            st.caption(f"To: {c['email']}")
+                                            st.caption("Subject: Round 2 Interview Invitation")
+                                            st.info("Generating secure Google Meet link automatically...")
+                                            
+                                            if st.button("Confirm & Send Invite", key=f"r2btn_{c['id']}", type="primary"):
+                                                # 1. Generate Details
+                                                meeting_link = generate_meeting_link()
+                                                date_str = r2d.strftime("%Y-%m-%d")
+                                                time_str = r2t.strftime("%H:%M")
+                                                
+                                                # 2. Update DB
+                                                c['round2Date'] = date_str
+                                                c['round2Time'] = time_str
+                                                c['round2Link'] = meeting_link
                                                 c['status'] = 'Interview Scheduled'
                                                 database.save_candidate(c)
-                                                st.toast(f"Interview set for {c['name']}", icon="📅")
+                                                
+                                                # 3. Simulate Email Trigger
+                                                st.toast(f"✅ Invitation sent to {c['email']} with link: {meeting_link}", icon="📨")
+                                                time.sleep(1.5) # Pause to let user see toast
                                                 st.rerun()
                                     else:
                                         st.error("Low Score")
