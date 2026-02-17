@@ -30,15 +30,30 @@ def init_db():
         )
     ''')
 
-    # Jobs Table (New)
+    # Jobs Table - Initialize
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             description TEXT NOT NULL,
+            skills TEXT,
+            min_experience INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # --- MIGRATION LOGIC FOR EXISTING DATABASES ---
+    # Check if 'skills' column exists, if not, add it
+    try:
+        c.execute("SELECT skills FROM jobs LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE jobs ADD COLUMN skills TEXT")
+        
+    # Check if 'min_experience' column exists, if not, add it
+    try:
+        c.execute("SELECT min_experience FROM jobs LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE jobs ADD COLUMN min_experience INTEGER")
     
     # Create default admin if not exists
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
@@ -129,12 +144,19 @@ def get_jobs():
     conn.close()
     return [dict(row) for row in rows]
 
-def save_job(title, description):
-    """Create a new job posting."""
+def save_job(title, description, skills=None, min_experience=0):
+    """Create a new job posting with skills and experience."""
     conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
     job_id = str(uuid.uuid4())
-    c.execute("INSERT INTO jobs (id, title, description) VALUES (?, ?, ?)", (job_id, title, description))
+    
+    # Convert list of skills to comma-separated string if needed
+    skills_str = skills if isinstance(skills, str) else ",".join(skills) if skills else ""
+    
+    c.execute(
+        "INSERT INTO jobs (id, title, description, skills, min_experience) VALUES (?, ?, ?, ?, ?)", 
+        (job_id, title, description, skills_str, min_experience)
+    )
     conn.commit()
     conn.close()
     return job_id

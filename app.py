@@ -96,33 +96,37 @@ def generate_meeting_link():
     return f"https://meet.google.com/{''.join(random.choices(string.ascii_lowercase, k=3))}-{''.join(random.choices(string.ascii_lowercase, k=4))}-{''.join(random.choices(string.ascii_lowercase, k=3))}"
 
 # --- AI LOGIC ---
-def screen_resume_ai(text, role_title, job_description):
+def screen_resume_ai(text, role_title, job_description, skills_required, min_experience):
     """
     Screens resume with temperature=0.0 and a fixed seed for deterministic results.
     Uses the specific Job Description provided by HR.
     """
     
     # Generate a deterministic integer seed from the content
-    # This ensures that the same Resume + JD always results in the same AI evaluation
     seed_str = f"{text[:100]}{job_description[:100]}{len(text)}"
     seed = sum(ord(char) for char in seed_str)
 
     prompt = f"""
     You are a strict technical recruiter. 
-    Evaluate the following Resume against the Job Description.
+    Evaluate the following Resume against the Job Requirements.
     
-    Job Title: {role_title}
+    JOB TITLE: {role_title}
     
-    STRICT JOB DESCRIPTION & REQUIREMENTS:
+    MANDATORY REQUIREMENTS:
+    1. Minimum Experience Required: {min_experience} years.
+    2. Mandatory Skills: {skills_required}
+    
+    JOB DESCRIPTION:
     {job_description}
     
     CANDIDATE RESUME:
     {text}
     
-    INSTRUCTIONS:
-    1. Score the candidate from 0-100 based *only* on how well they match the requirements above.
-    2. Be strict. If they miss key skills mentioned in the description, lower the score.
-    3. Provide a summary explaining the score based on evidence from the resume.
+    EVALUATION INSTRUCTIONS:
+    1. Check if the candidate matches the Minimum Experience. If they have less than {min_experience} years, the Score MUST be below 40.
+    2. Check if the candidate has the Mandatory Skills ({skills_required}). If they miss key skills, deduct points significantly.
+    3. Score from 0-100 based on strict evidence in the text.
+    4. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
     """
     
     response = client.models.generate_content(
@@ -253,22 +257,31 @@ def view_candidate_portal():
             
             # Show the description of selected job
             selected_job = job_options[selected_role_title]
-            with st.expander("View Job Description"):
+            
+            with st.expander("View Job Requirements"):
+                st.markdown(f"**Required Experience:** {selected_job.get('min_experience', 0)}+ Years")
+                if selected_job.get('skills'):
+                    st.markdown(f"**Must-Have Skills:**")
+                    for s in selected_job['skills'].split(','):
+                        st.markdown(f"- {s}")
+                st.markdown("---")
                 st.write(selected_job['description'])
 
             resume = st.file_uploader("Upload Resume (TXT/PDF)", type=['txt', 'pdf'])
             
             if st.button("Submit Application", type="primary"):
                 if name and email and resume:
-                    with st.spinner("AI is rigorously analyzing your profile against the job description..."):
+                    with st.spinner("AI is rigorously analyzing your profile against specific job requirements..."):
                         try:
                             resume_text = resume.read().decode("utf-8", errors="ignore")
                             
-                            # Pass specific JD to AI
+                            # Pass specific JD, Skills and Exp to AI
                             analysis = screen_resume_ai(
                                 resume_text, 
                                 selected_role_title, 
-                                selected_job['description']
+                                selected_job['description'],
+                                selected_job.get('skills', ''),
+                                selected_job.get('min_experience', 0)
                             )
                             
                             access_key = generate_key()
@@ -311,7 +324,7 @@ def view_candidate_portal():
                 st.caption("Use this Access Key to login to the interview portal.")
                 st.markdown(f"**Role:** {c['role']}")
                 st.markdown(f"**AI Score:** {c['score']}/100")
-                st.markdown("**Note:** This score is based strictly on the job description provided.")
+                st.markdown("**Note:** This score is based strictly on the skills and experience required.")
 
 def view_hr_dashboard():
     st.title("Recruiter Command Center")
@@ -449,18 +462,32 @@ def view_hr_dashboard():
     # --- JOB MANAGEMENT TAB ---
     with tab_jobs:
         st.subheader("Manage Job Descriptions")
-        st.markdown("Add roles here to allow candidates to apply. The AI will strictly use these descriptions for screening.")
+        st.markdown("Add roles with specific skills and experience requirements. The AI will strictly use these for screening.")
         
         with st.form("add_job_form"):
-            new_title = st.text_input("Job Title", placeholder="e.g. Senior Backend Engineer")
-            new_desc = st.text_area("Job Description & Required Skills", height=200, placeholder="Paste the full job description here. Include tech stack, years of experience, and soft skills.")
+            col_j1, col_j2 = st.columns([1, 1])
+            with col_j1:
+                new_title = st.text_input("Job Title", placeholder="e.g. Senior Backend Engineer")
+            with col_j2:
+                new_exp = st.number_input("Minimum Experience (Years)", min_value=0, max_value=20, step=1, value=2)
+
+            # Predefined common skills list + dynamic addition
+            common_skills = [
+                "Python", "Java", ".NET", ".NET Core", "C#", "JavaScript", "TypeScript", "React", "Angular", "Vue.js",
+                "Node.js", "Django", "Flask", "FastAPI", "Spring Boot", "SQL", "PostgreSQL", "MongoDB", "AWS", "Azure",
+                "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "Machine Learning", "Data Analysis"
+            ]
+            new_skills = st.multiselect("Required Skills (Select all that apply)", options=common_skills)
+            
+            new_desc = st.text_area("Detailed Job Description", height=200, placeholder="Paste the full job description here. Include culture, soft skills, and day-to-day responsibilities.")
+            
             if st.form_submit_button("Create Job Posting", type="primary"):
-                if new_title and new_desc:
-                    database.save_job(new_title, new_desc)
+                if new_title and new_desc and new_skills:
+                    database.save_job(new_title, new_desc, new_skills, new_exp)
                     st.success(f"Job '{new_title}' created successfully!")
                     st.rerun()
                 else:
-                    st.error("Please fill in both fields.")
+                    st.error("Please fill in Job Title, Skills, and Description.")
         
         st.divider()
         st.markdown("### Active Jobs")
@@ -474,7 +501,15 @@ def view_hr_dashboard():
                     col_j1, col_j2 = st.columns([5, 1])
                     with col_j1:
                         st.markdown(f"**{job['title']}**")
-                        with st.expander("Show Description"):
+                        # Show badges for requirements
+                        st.markdown(f"**Experience:** {job.get('min_experience', 0)}+ Years")
+                        if job.get('skills'):
+                            skills_list = job['skills'].split(',')
+                            # Display skills as tags
+                            tags_html = " ".join([f"<span style='background-color:#e0f2fe; color:#0284c7; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:600; margin-right:4px;'>{s}</span>" for s in skills_list])
+                            st.markdown(tags_html, unsafe_allow_html=True)
+                        
+                        with st.expander("Show Detailed Description"):
                             st.write(job['description'])
                     with col_j2:
                         if st.button("Delete", key=f"del_job_{job['id']}"):
