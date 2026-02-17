@@ -233,7 +233,8 @@ def view_candidate_portal():
                                 "aptitudeTime": None,
                                 "round2Date": None,
                                 "round2Time": None,
-                                "round2Link": None
+                                "round2Link": None,
+                                "archived": False  # New field for archive logic
                             }
                             database.save_candidate(new_candidate)
                             st.balloons()
@@ -261,109 +262,154 @@ def view_hr_dashboard():
         st.info("The pipeline is currently empty. Candidates will appear here once they apply.")
         return
 
-    df = pd.DataFrame(candidates)
+    # Filter candidates into Active and Archived lists
+    active_candidates = [c for c in candidates if not c.get('archived')]
+    archived_candidates = [c for c in candidates if c.get('archived')]
     
-    # 1. Pipeline Metrics
+    df_active = pd.DataFrame(active_candidates)
+    
+    # 1. Pipeline Metrics (Based on Active Candidates only)
     m1, m2, m3 = st.columns(3)
     with m1:
         with st.container(border=True):
-            st.metric("Total Candidates", len(df))
+            st.metric("Total Candidates", len(active_candidates))
     with m2:
         with st.container(border=True):
             # Handle nullable scores in dataframe
-            aptitude_takers = df[df['aptitude_score'].notnull()] if 'aptitude_score' in df.columns else pd.DataFrame()
-            avg_apt = int(aptitude_takers['aptitude_score'].mean()) if not aptitude_takers.empty else 0
+            if not df_active.empty and 'aptitude_score' in df_active.columns:
+                aptitude_takers = df_active[df_active['aptitude_score'].notnull()]
+                avg_apt = int(aptitude_takers['aptitude_score'].mean()) if not aptitude_takers.empty else 0
+            else:
+                avg_apt = 0
             st.metric("Avg Aptitude Score", f"{avg_apt}%")
     with m3:
         with st.container(border=True):
             upcoming = "None"
-            for c in candidates:
+            for c in active_candidates:
                  if c.get('round2Date'): 
                      upcoming = f"{c['round2Date']} {c['round2Time']}"
             st.metric("Next Interview", upcoming)
 
-    # 2. Master Pipeline List (Shows ALL candidates)
+    # 2. Tabs for Active vs Archived
     st.subheader("Candidate Pipeline")
-    st.markdown("View and manage all candidates in the system.")
+    tab_active, tab_archived = st.tabs([f"Active Pipeline ({len(active_candidates)})", f"Archived / Trash ({len(archived_candidates)})"])
     
-    # Table Header
-    with st.container(border=True):
-        col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
-        col_c.markdown("**Candidate**")
-        col_s.markdown("**Stage**")
-        col_sc.markdown("**Scores**")
-        col_a.markdown("**Action**")
+    # --- ACTIVE PIPELINE TAB ---
+    with tab_active:
+        if not active_candidates:
+            st.info("No active candidates.")
+        else:
+            # Table Header
+            with st.container(border=True):
+                col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
+                col_c.markdown("**Candidate**")
+                col_s.markdown("**Stage**")
+                col_sc.markdown("**Scores**")
+                col_a.markdown("**Action**")
 
-    # Table Rows
-    for c in candidates:
-        with st.container(border=True):
-            col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
-            
-            # 1. Candidate Details
-            with col_c:
-                st.markdown(f"**{c['name']}**")
-                st.caption(f"{c['role']}")
-                st.caption(f"📧 {c['email']}")
-            
-            # 2. Stage/Status
-            with col_s:
-                status_color = "gray"
-                if c['status'] == 'Screening': status_color = "blue"
-                elif c['status'] == 'Aptitude Scheduled': status_color = "orange"
-                elif c['status'] == 'Aptitude Completed': status_color = "green" if (c.get('aptitude_score') or 0) >= 50 else "red"
-                elif c['status'] == 'Interview Scheduled': status_color = "violet"
-                
-                st.markdown(f":{status_color}[{c['status']}]")
-                if c.get('aptitudeDate'):
-                    st.caption(f"Exam: {c['aptitudeDate']} {c['aptitudeTime']}")
+            # Table Rows
+            for c in active_candidates:
+                with st.container(border=True):
+                    col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
+                    
+                    # 1. Candidate Details
+                    with col_c:
+                        st.markdown(f"**{c['name']}**")
+                        st.caption(f"{c['role']}")
+                        st.caption(f"📧 {c['email']}")
+                    
+                    # 2. Stage/Status
+                    with col_s:
+                        status_color = "gray"
+                        if c['status'] == 'Screening': status_color = "blue"
+                        elif c['status'] == 'Aptitude Scheduled': status_color = "orange"
+                        elif c['status'] == 'Aptitude Completed': status_color = "green" if (c.get('aptitude_score') or 0) >= 50 else "red"
+                        elif c['status'] == 'Interview Scheduled': status_color = "violet"
+                        
+                        st.markdown(f":{status_color}[{c['status']}]")
+                        if c.get('aptitudeDate'):
+                            st.caption(f"Exam: {c['aptitudeDate']} {c['aptitudeTime']}")
 
-            # 3. Scores
-            with col_sc:
-                st.markdown(f"Resume: **{c.get('score', 0)}**")
-                if c.get('aptitude_score') is not None:
-                    st.markdown(f"Aptitude: **{c['aptitude_score']}**")
-                else:
-                    st.markdown("Aptitude: --")
+                    # 3. Scores
+                    with col_sc:
+                        st.markdown(f"Resume: **{c.get('score', 0)}**")
+                        if c.get('aptitude_score') is not None:
+                            st.markdown(f"Aptitude: **{c['aptitude_score']}**")
+                        else:
+                            st.markdown("Aptitude: --")
 
-            # 4. Actions
-            with col_a:
-                # Screening -> Schedule Aptitude
-                if c['status'] == 'Screening':
-                    with st.popover("Schedule Exam"):
-                        d = st.date_input("Date", key=f"d_{c['id']}")
-                        t = st.time_input("Time", key=f"t_{c['id']}")
-                        if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
-                            c['aptitudeDate'] = d.strftime("%Y-%m-%d")
-                            c['aptitudeTime'] = t.strftime("%H:%M")
-                            c['status'] = 'Aptitude Scheduled'
-                            database.save_candidate(c)
-                            st.toast(f"Exam scheduled for {c['name']}", icon="📧")
-                            st.rerun()
-                
-                # Aptitude Scheduled -> Waiting
-                elif c['status'] == 'Aptitude Scheduled':
-                    st.info("Waiting for candidate to take exam.")
+                    # 4. Actions
+                    with col_a:
+                        # Use nested columns to put the Archive button next to the main action
+                        col_act_main, col_act_del = st.columns([4, 1])
+                        
+                        with col_act_main:
+                            # Screening -> Schedule Aptitude
+                            if c['status'] == 'Screening':
+                                with st.popover("Schedule Exam"):
+                                    d = st.date_input("Date", key=f"d_{c['id']}")
+                                    t = st.time_input("Time", key=f"t_{c['id']}")
+                                    if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
+                                        c['aptitudeDate'] = d.strftime("%Y-%m-%d")
+                                        c['aptitudeTime'] = t.strftime("%H:%M")
+                                        c['status'] = 'Aptitude Scheduled'
+                                        database.save_candidate(c)
+                                        st.toast(f"Exam scheduled for {c['name']}", icon="📧")
+                                        st.rerun()
+                            
+                            # Aptitude Scheduled -> Waiting
+                            elif c['status'] == 'Aptitude Scheduled':
+                                st.info("Waiting for exam...")
 
-                # Aptitude Completed -> Schedule Round 2 (if passed)
-                elif c['status'] == 'Aptitude Completed':
-                    if (c.get('aptitude_score') or 0) >= 50:
-                        with st.popover("Schedule Round 2"):
-                            r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
-                            r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
-                            if st.button("Confirm Interview", key=f"r2btn_{c['id']}", type="primary"):
-                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                c['round2Time'] = r2t.strftime("%H:%M")
-                                c['round2Link'] = generate_meeting_link()
-                                c['status'] = 'Interview Scheduled'
+                            # Aptitude Completed -> Schedule Round 2 (if passed)
+                            elif c['status'] == 'Aptitude Completed':
+                                if (c.get('aptitude_score') or 0) >= 50:
+                                    with st.popover("Schedule Round 2"):
+                                        r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
+                                        r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
+                                        if st.button("Confirm Interview", key=f"r2btn_{c['id']}", type="primary"):
+                                            c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                            c['round2Time'] = r2t.strftime("%H:%M")
+                                            c['round2Link'] = generate_meeting_link()
+                                            c['status'] = 'Interview Scheduled'
+                                            database.save_candidate(c)
+                                            st.toast(f"Interview set for {c['name']}", icon="📅")
+                                            st.rerun()
+                                else:
+                                    st.error("Low Score")
+
+                            # Interview Scheduled -> Link
+                            elif c['status'] == 'Interview Scheduled':
+                                st.link_button("Join Meeting", c['round2Link'])
+
+                        # Archive Button
+                        with col_act_del:
+                            if st.button("🗑", key=f"archive_{c['id']}", help="Archive Candidate"):
+                                c['archived'] = True
                                 database.save_candidate(c)
-                                st.toast(f"Interview set for {c['name']}", icon="📅")
+                                st.toast(f"Archived {c['name']}")
                                 st.rerun()
-                    else:
-                        st.error("Low Score. No Action.")
 
-                # Interview Scheduled -> Link
-                elif c['status'] == 'Interview Scheduled':
-                    st.link_button("Join Meeting", c['round2Link'])
+    # --- ARCHIVED TAB ---
+    with tab_archived:
+        if not archived_candidates:
+            st.info("No archived candidates.")
+        else:
+            for c in archived_candidates:
+                with st.container(border=True):
+                    col_ac, col_as, col_arest = st.columns([3, 2, 1])
+                    with col_ac:
+                        st.markdown(f"**{c['name']}** (Archived)")
+                        st.caption(f"{c['role']}")
+                    with col_as:
+                        st.caption(f"Last Status: {c['status']}")
+                        st.caption(f"Score: {c.get('score', 0)}")
+                    with col_arest:
+                        if st.button("Restore", key=f"restore_{c['id']}"):
+                            c['archived'] = False
+                            database.save_candidate(c)
+                            st.toast(f"Restored {c['name']}")
+                            st.rerun()
 
 def view_interview_room():
     if not st.session_state.active_user:
@@ -373,12 +419,13 @@ def view_interview_room():
             with st.container(border=True):
                 key_input = st.text_input("Enter your 8-digit Access Key", placeholder="XXXX-0000")
                 if st.button("Login to Portal", type="primary"):
-                    match = next((c for c in candidates if c.get('access_key') == key_input), None)
+                    # Only check non-archived candidates for login
+                    match = next((c for c in candidates if c.get('access_key') == key_input and not c.get('archived')), None)
                     if match:
                         st.session_state.active_user = match
                         st.rerun()
                     else:
-                        st.error("Invalid key. Access Denied.")
+                        st.error("Invalid key or account archived.")
     else:
         user = st.session_state.active_user
         
