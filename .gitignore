@@ -12,7 +12,8 @@ venv/
 .venv/
 
 # Streamlit
-.streamlit/
+# Ignore the secrets file containing keys
+.streamlit/secrets.toml
 
 # Node / Web
 node_modules/
