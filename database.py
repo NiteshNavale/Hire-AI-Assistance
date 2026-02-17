@@ -9,7 +9,7 @@ DB_FOLDER = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(DB_FOLDER, "hireai.db")
 
 def init_db():
-    """Initialize the SQLite database with users and candidates tables."""
+    """Initialize the SQLite database with users, candidates, and jobs tables."""
     # Timeout added to prevent locking
     conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
@@ -27,6 +27,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS candidates (
             id TEXT PRIMARY KEY,
             data JSON NOT NULL
+        )
+    ''')
+
+    # Jobs Table (New)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -77,9 +87,6 @@ def save_candidate(candidate):
     if 'id' not in candidate:
         candidate['id'] = str(uuid.uuid4())
     
-    # Normalize access key if present (React uses accessKey, Python uses access_key)
-    # We keep the JSON as is, just ensuring we have a stable ID.
-    
     c.execute(
         "INSERT OR REPLACE INTO candidates (id, data) VALUES (?, ?)", 
         (candidate['id'], json.dumps(candidate))
@@ -110,6 +117,35 @@ def login_user(username, password):
     user = c.fetchone()
     conn.close()
     return user is not None
+
+# --- JOB MANAGEMENT FUNCTIONS ---
+def get_jobs():
+    """Retrieve all job descriptions."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def save_job(title, description):
+    """Create a new job posting."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    job_id = str(uuid.uuid4())
+    c.execute("INSERT INTO jobs (id, title, description) VALUES (?, ?, ?)", (job_id, title, description))
+    conn.commit()
+    conn.close()
+    return job_id
+
+def delete_job(job_id):
+    """Delete a job posting."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    c.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
 
 # Init DB when imported to ensure file exists immediately
 init_db()
