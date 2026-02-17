@@ -22,6 +22,12 @@ def init_db():
         )
     ''')
     
+    # Check if 'email' column exists in users, if not, add it (Migration)
+    try:
+        c.execute("SELECT email FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE users ADD COLUMN email TEXT")
+
     # Candidates Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS candidates (
@@ -58,23 +64,49 @@ def init_db():
     # Create default admin if not exists
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():
-        c.execute('INSERT INTO users (username, password) VALUES (?, ?)', ('admin', 'admin123'))
+        c.execute('INSERT INTO users (username, password, email) VALUES (?, ?, ?)', ('admin', 'admin123', 'admin@hireai.com'))
         
     conn.commit()
     conn.close()
 
-def create_user(username, password):
+def create_user(username, password, email=""):
     """Create a new user. Returns True if successful, False if username exists."""
     conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        c.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, password, email))
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
         success = False
     conn.close()
     return success
+
+def get_users():
+    """Retrieve all users."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_user(username, email, password):
+    """Update user email and password."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    c.execute("UPDATE users SET email = ?, password = ? WHERE username = ?", (email, password, username))
+    conn.commit()
+    conn.close()
+
+def delete_user(username):
+    """Delete a user."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    c.execute("DELETE FROM users WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
 
 def get_candidates():
     """Retrieve all candidates as a list of dictionaries."""

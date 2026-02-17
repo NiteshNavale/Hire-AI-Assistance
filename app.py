@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -365,9 +366,10 @@ def view_hr_dashboard():
     active_candidates = [c for c in candidates if not c.get('archived')]
     archived_candidates = [c for c in candidates if c.get('archived')]
     
-    tab_pipeline, tab_jobs, tab_archived = st.tabs([
+    tab_pipeline, tab_jobs, tab_team, tab_archived = st.tabs([
         f"Active Pipeline ({len(active_candidates)})", 
         "Manage Jobs / JDs",
+        "Manage Team",
         f"Archived ({len(archived_candidates)})"
     ])
     
@@ -594,6 +596,67 @@ def view_hr_dashboard():
                         if st.button("Delete", key=f"del_job_{job['id']}"):
                             database.delete_job(job['id'])
                             st.rerun()
+
+    # --- TEAM MANAGEMENT TAB ---
+    with tab_team:
+        st.subheader("Manage HR Team")
+        st.markdown("Create accounts for other recruiters. The system will simulate sending credentials via email.")
+        
+        with st.container(border=True):
+            st.markdown("### Add New Recruiter")
+            with st.form("add_hr_form"):
+                c1, c2, c3 = st.columns(3)
+                new_u = c1.text_input("Username", placeholder="j.doe")
+                new_e = c2.text_input("Email", placeholder="j.doe@company.com")
+                new_p = c3.text_input("Password", type="password", placeholder="Secret123")
+                
+                if st.form_submit_button("Create User & Send Email", type="primary"):
+                    if new_u and new_p and new_e:
+                        if database.create_user(new_u, new_p, new_e):
+                            st.success(f"User '{new_u}' created successfully.")
+                            st.toast(f"📧 Credentials sent to {new_e}", icon="✅")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(f"Username '{new_u}' already exists.")
+                    else:
+                        st.warning("All fields are required.")
+
+        st.markdown("### Existing Users")
+        
+        users = database.get_users()
+        # Header
+        c1, c2, c3 = st.columns([2, 3, 2])
+        c1.markdown("**Username**")
+        c2.markdown("**Email**")
+        c3.markdown("**Actions**")
+        
+        for u in users:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2, 3, 2])
+                c1.markdown(f"👤 **{u['username']}**")
+                c2.caption(u.get('email', 'No Email'))
+                
+                with c3:
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        with st.popover("Edit"):
+                            st.markdown(f"**Edit {u['username']}**")
+                            ed_email = st.text_input("Email", value=u.get('email', ''), key=f"e_{u['username']}")
+                            ed_pass = st.text_input("New Password", type="password", key=f"p_{u['username']}", help="Leave blank to keep current")
+                            if st.button("Update", key=f"upd_{u['username']}"):
+                                final_pass = ed_pass if ed_pass else u['password']
+                                database.update_user(u['username'], ed_email, final_pass)
+                                st.success("Updated!")
+                                st.rerun()
+                    
+                    with col_b:
+                        if u['username'] != 'admin' and u['username'] != st.session_state.active_user:
+                             if st.button("🗑️", key=f"del_{u['username']}", help="Delete User"):
+                                 database.delete_user(u['username'])
+                                 st.rerun()
+                        elif u['username'] == 'admin':
+                             st.caption("Admin")
 
     # --- ARCHIVED TAB ---
     with tab_archived:
