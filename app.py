@@ -75,6 +75,12 @@ jobs = database.get_jobs()
 if 'active_user' not in st.session_state:
     st.session_state.active_user = None
 
+# HR Auth State
+if 'hr_authenticated' not in st.session_state:
+    st.session_state.hr_authenticated = False
+if 'hr_username' not in st.session_state:
+    st.session_state.hr_username = None
+
 # --- API CLIENT ---
 def get_client():
     # Priority: 1. Streamlit Secrets (Cloud), 2. Environment Variable (VPS/Heroku/.env)
@@ -206,7 +212,7 @@ def sidebar_nav():
         st.caption("SYSTEM STATUS")
         
         # Notifications
-        if choice == "HR Dashboard":
+        if choice == "HR Dashboard" and st.session_state.hr_authenticated:
             upcoming_meetings = []
             now = datetime.now()
             for c in candidates:
@@ -222,6 +228,15 @@ def sidebar_nav():
             if upcoming_meetings:
                  st.error(f"🔔 Meeting Starting: {', '.join(upcoming_meetings)}")
 
+        # HR Logout
+        if st.session_state.hr_authenticated:
+            st.markdown(f"👤 **{st.session_state.hr_username}**")
+            if st.button("Logout HR", key="logout_hr", type="secondary"):
+                st.session_state.hr_authenticated = False
+                st.session_state.hr_username = None
+                st.rerun()
+
+        # Candidate Logout
         if st.session_state.active_user:
             if st.button("Logout Candidate", type="primary"):
                 st.session_state.active_user = None
@@ -358,7 +373,33 @@ def view_candidate_portal():
             st.rerun()
 
 def view_hr_dashboard():
-    st.title("Recruiter Command Center")
+    # --- LOGIN CHECK ---
+    if not st.session_state.hr_authenticated:
+        st.title("Recruiter Login")
+        
+        col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+        with col_c2:
+            with st.container(border=True):
+                st.markdown("### 🔐 Secure Access")
+                with st.form("hr_login_form"):
+                    username = st.text_input("Username", placeholder="admin")
+                    password = st.text_input("Password", type="password", placeholder="••••••")
+                    
+                    if st.form_submit_button("Login to Dashboard", type="primary"):
+                        if database.login_user(username, password):
+                            st.session_state.hr_authenticated = True
+                            st.session_state.hr_username = username
+                            st.toast(f"Welcome back, {username}!", icon="👋")
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password.")
+                
+                st.caption("Default Admin: `admin` / `admin123`")
+        return
+
+    # --- DASHBOARD CONTENT ---
+    st.title(f"Recruiter Command Center")
+    st.caption(f"Logged in as: {st.session_state.hr_username}")
     
     # Reload data
     active_candidates = [c for c in candidates if not c.get('archived')]
@@ -604,9 +645,9 @@ def view_hr_dashboard():
             st.markdown("### Add New Recruiter")
             with st.form("add_hr_form"):
                 c1, c2, c3 = st.columns(3)
-                new_u = c1.text_input("Username", placeholder="j.doe")
-                new_e = c2.text_input("Email", placeholder="j.doe@company.com")
-                new_p = c3.text_input("Password", type="password", placeholder="Secret123")
+                new_u = c1.text_input("Username", placeholder="j.doe", key="new_u_input")
+                new_e = c2.text_input("Email", placeholder="j.doe@company.com", key="new_e_input")
+                new_p = c3.text_input("Password", type="password", placeholder="Secret123", key="new_p_input")
                 
                 if st.form_submit_button("Create User & Send Email", type="primary"):
                     if new_u and new_p and new_e:
