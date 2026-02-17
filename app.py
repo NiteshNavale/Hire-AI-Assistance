@@ -63,7 +63,9 @@ apply_custom_styles()
 
 # --- INITIALIZATION ---
 database.init_db()
-# Load candidates from DB instead of session state list
+# Load candidates from DB. 
+# We fetch this at the start of the script run. 
+# Streamlit re-runs the whole script on interaction, so this stays up to date.
 candidates = database.get_candidates()
 
 if 'active_user' not in st.session_state:
@@ -256,7 +258,7 @@ def view_hr_dashboard():
     st.title("Recruiter Command Center")
     
     if not candidates:
-        st.info("The pipeline is currently empty.")
+        st.info("The pipeline is currently empty. Candidates will appear here once they apply.")
         return
 
     df = pd.DataFrame(candidates)
@@ -280,94 +282,88 @@ def view_hr_dashboard():
                      upcoming = f"{c['round2Date']} {c['round2Time']}"
             st.metric("Next Interview", upcoming)
 
-    # 2. Actionable Pipeline
-    st.subheader("Candidate Stages")
+    # 2. Master Pipeline List (Shows ALL candidates)
+    st.subheader("Candidate Pipeline")
+    st.markdown("View and manage all candidates in the system.")
     
-    tabs = st.tabs(["Screening & Schedule", "Aptitude Results", "Round 2 Interviews"])
-    
-    # Tab 1: Schedule Aptitude
-    with tabs[0]:
-        for c in candidates:
-            if c.get('status') == 'Screening':
-                with st.container(border=True):
-                    col_info, col_action = st.columns([1, 2])
-                    with col_info:
-                        st.subheader(c['name'])
-                        st.caption(f"{c['role']}")
-                        st.markdown(f"**Resume Score:** {c.get('score', 0)}")
-                    
-                    with col_action:
-                        st.markdown("**Schedule Exam**")
-                        c1, c2, c3 = st.columns([2, 2, 1])
-                        with c1:
-                            d = st.date_input("Date", key=f"d_{c['id']}")
-                        with c2:
-                            t = st.time_input("Time", key=f"t_{c['id']}")
-                        with c3:
-                            st.write("")
-                            st.write("")
-                            if st.button("Schedule", key=f"btn_{c['id']}", type="primary"):
-                                c['aptitudeDate'] = d.strftime("%Y-%m-%d")
-                                c['aptitudeTime'] = t.strftime("%H:%M")
-                                c['status'] = 'Aptitude Scheduled'
-                                database.save_candidate(c)
-                                st.toast(f"Exam scheduled for {c['name']}", icon="📧")
-                                st.rerun()
+    # Table Header
+    with st.container(border=True):
+        col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
+        col_c.markdown("**Candidate**")
+        col_s.markdown("**Stage**")
+        col_sc.markdown("**Scores**")
+        col_a.markdown("**Action**")
 
-    # Tab 2: View Results & Schedule Round 2
-    with tabs[1]:
-        completed = [c for c in candidates if c.get('aptitude_score') is not None]
-        if not completed:
-            st.info("No aptitude tests completed yet.")
-        
-        for c in completed:
-            if c.get('status') != 'Interview Scheduled':
-                is_passed = c['aptitude_score'] >= 50
+    # Table Rows
+    for c in candidates:
+        with st.container(border=True):
+            col_c, col_s, col_sc, col_a = st.columns([2.5, 1.5, 1, 2])
+            
+            # 1. Candidate Details
+            with col_c:
+                st.markdown(f"**{c['name']}**")
+                st.caption(f"{c['role']}")
+                st.caption(f"📧 {c['email']}")
+            
+            # 2. Stage/Status
+            with col_s:
+                status_color = "gray"
+                if c['status'] == 'Screening': status_color = "blue"
+                elif c['status'] == 'Aptitude Scheduled': status_color = "orange"
+                elif c['status'] == 'Aptitude Completed': status_color = "green" if (c.get('aptitude_score') or 0) >= 50 else "red"
+                elif c['status'] == 'Interview Scheduled': status_color = "violet"
                 
-                with st.container(border=True):
-                    col_res, col_sched = st.columns([1, 2])
-                    
-                    with col_res:
-                        st.subheader(c['name'])
-                        if is_passed:
-                            st.success(f"PASSED: {c['aptitude_score']}%")
-                        else:
-                            st.error(f"FAILED: {c['aptitude_score']}%")
-                        st.caption(c['role'])
+                st.markdown(f":{status_color}[{c['status']}]")
+                if c.get('aptitudeDate'):
+                    st.caption(f"Exam: {c['aptitudeDate']} {c['aptitudeTime']}")
 
-                    with col_sched:
-                        if is_passed:
-                            st.markdown("**Schedule Round 2**")
-                            cc1, cc2, cc3 = st.columns([2, 2, 1])
-                            with cc1:
-                                r2d = st.date_input("Date", key=f"r2d_{c['id']}")
-                            with cc2:
-                                r2t = st.time_input("Time", key=f"r2t_{c['id']}")
-                            with cc3:
-                                st.write("")
-                                st.write("")
-                                if st.button("Confirm", key=f"r2btn_{c['id']}", type="primary"):
-                                    c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                    c['round2Time'] = r2t.strftime("%H:%M")
-                                    c['round2Link'] = generate_meeting_link()
-                                    c['status'] = 'Interview Scheduled'
-                                    database.save_candidate(c)
-                                    st.toast(f"Interview set for {c['name']}", icon="📅")
-                                    st.rerun()
-                        else:
-                            st.warning("Candidate failed aptitude cutoff (< 50%).")
+            # 3. Scores
+            with col_sc:
+                st.markdown(f"Resume: **{c.get('score', 0)}**")
+                if c.get('aptitude_score') is not None:
+                    st.markdown(f"Aptitude: **{c['aptitude_score']}**")
+                else:
+                    st.markdown("Aptitude: --")
 
-    # Tab 3: Upcoming Interviews
-    with tabs[2]:
-        interviews = [c for c in candidates if c.get('status') == 'Interview Scheduled']
-        if not interviews:
-            st.info("No upcoming interviews.")
-        
-        for c in interviews:
-            with st.container(border=True):
-                st.subheader(c['name'])
-                st.write(f"📅 **{c['round2Date']}** at **{c['round2Time']}**")
-                st.link_button(f"Join Meeting ({c['round2Link']})", c['round2Link'])
+            # 4. Actions
+            with col_a:
+                # Screening -> Schedule Aptitude
+                if c['status'] == 'Screening':
+                    with st.popover("Schedule Exam"):
+                        d = st.date_input("Date", key=f"d_{c['id']}")
+                        t = st.time_input("Time", key=f"t_{c['id']}")
+                        if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
+                            c['aptitudeDate'] = d.strftime("%Y-%m-%d")
+                            c['aptitudeTime'] = t.strftime("%H:%M")
+                            c['status'] = 'Aptitude Scheduled'
+                            database.save_candidate(c)
+                            st.toast(f"Exam scheduled for {c['name']}", icon="📧")
+                            st.rerun()
+                
+                # Aptitude Scheduled -> Waiting
+                elif c['status'] == 'Aptitude Scheduled':
+                    st.info("Waiting for candidate to take exam.")
+
+                # Aptitude Completed -> Schedule Round 2 (if passed)
+                elif c['status'] == 'Aptitude Completed':
+                    if (c.get('aptitude_score') or 0) >= 50:
+                        with st.popover("Schedule Round 2"):
+                            r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
+                            r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
+                            if st.button("Confirm Interview", key=f"r2btn_{c['id']}", type="primary"):
+                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                c['round2Time'] = r2t.strftime("%H:%M")
+                                c['round2Link'] = generate_meeting_link()
+                                c['status'] = 'Interview Scheduled'
+                                database.save_candidate(c)
+                                st.toast(f"Interview set for {c['name']}", icon="📅")
+                                st.rerun()
+                    else:
+                        st.error("Low Score. No Action.")
+
+                # Interview Scheduled -> Link
+                elif c['status'] == 'Interview Scheduled':
+                    st.link_button("Join Meeting", c['round2Link'])
 
 def view_interview_room():
     if not st.session_state.active_user:
