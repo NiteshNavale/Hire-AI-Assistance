@@ -4,7 +4,9 @@ import json
 import os
 import uuid
 
-DB_FILE = "hireai.db"
+# Use absolute path for DB to avoid Current Working Directory issues on some hosting panels
+DB_FOLDER = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(DB_FOLDER, "hireai.db")
 
 def init_db():
     """Initialize the SQLite database with users and candidates tables."""
@@ -109,4 +111,5 @@ def login_user(username, password):
     conn.close()
     return user is not None
 
-# Removed auto-init_db() call to avoid import side-effects
+# Init DB when imported to ensure file exists immediately
+init_db()

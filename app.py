@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -11,7 +10,12 @@ import string
 import uuid
 from google import genai
 from google.genai import types
+from dotenv import load_dotenv  # Import dotenv
 import database  # Import the shared database module
+
+# --- LOAD ENVIRONMENT VARIABLES ---
+# This ensures it works on local machines, VPS, and hosting panels using .env files
+load_dotenv()
 
 # --- PREMIUM UI CONFIGURATION ---
 st.set_page_config(
@@ -33,7 +37,6 @@ def apply_custom_styles():
         section[data-testid="stSidebar"] { 
             background-color: #ffffff !important; 
             border-right: 1px solid #e2e8f0;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.02);
         }
         
         /* Sidebar Content */
@@ -42,37 +45,17 @@ def apply_custom_styles():
             color: #0f172a !important;
         }
         
-        /* Card Styling */
-        .hireai-card {
-            background: white; padding: 24px; border-radius: 20px;
-            border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            margin-bottom: 20px;
-        }
-        .hireai-label {
-            font-size: 10px; font-weight: 900; color: #64748b;
-            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
-        }
+        /* Headings */
+        h1, h2, h3 { font-weight: 700 !important; color: #0f172a !important; }
         
-        /* Button Styling */
+        /* Custom Button Styling override */
         .stButton>button {
-            width: 100%; border-radius: 12px; font-weight: 700;
-            background-color: #2563eb; color: white; border: none; padding: 12px;
-            transition: all 0.3s ease;
-        }
-        .stButton>button:hover {
-            background-color: #1d4ed8; transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
+            border-radius: 8px; font-weight: 600;
         }
         
-        /* Metrics & Headings */
-        [data-testid="stMetricValue"] { font-weight: 900; color: #1e293b; }
-        h1, h2, h3 { font-weight: 900 !important; letter-spacing: -1px !important; color: #0f172a !important; }
-        
-        /* Hide ONLY the hamburger menu and footer, but keep the header for sidebar controls */
+        /* Hide default Streamlit chrome */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;} 
-        /* header {visibility: hidden;}  <-- REMOVED to allow sidebar toggle */
-        
         </style>
     """, unsafe_allow_html=True)
 
@@ -88,9 +71,11 @@ if 'active_user' not in st.session_state:
 
 # --- API CLIENT ---
 def get_client():
-    api_key = st.secrets["API_KEY"] if "API_KEY" in st.secrets else os.environ.get("API_KEY")
+    # Priority: 1. Streamlit Secrets (Cloud), 2. Environment Variable (VPS/Heroku/.env)
+    api_key = st.secrets.get("API_KEY") if hasattr(st, "secrets") else os.environ.get("API_KEY")
+    
     if not api_key:
-        st.error("Missing API_KEY. Please add it to Secrets.")
+        st.error("Missing API_KEY. Please set it in .env file or Environment Variables.")
         st.stop()
     return genai.Client(api_key=api_key)
 
@@ -167,21 +152,19 @@ def generate_aptitude_questions(role):
 # --- VIEWS ---
 def sidebar_nav():
     with st.sidebar:
-        st.markdown("""
-            <div style='display: flex; align-items: center; gap: 12px; margin-bottom: 30px;'>
-                <div style='background: #2563eb; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900;'>H</div>
-                <h2 style='margin: 0; font-size: 24px; color: #0f172a;'>HireAI</h2>
-            </div>
-        """, unsafe_allow_html=True)
+        col_logo, col_title = st.columns([1, 4])
+        with col_logo:
+             st.markdown("### 🎯")
+        with col_title:
+             st.markdown("### HireAI")
         
         # Using a key ensures better state stability
-        choice = st.radio("MAIN NAVIGATION", 
+        choice = st.radio("Navigation", 
                          ["Candidate Portal", "Candidate Login", "HR Dashboard"],
-                         label_visibility="collapsed",
                          key="nav_radio")
         
-        st.markdown("---")
-        st.markdown("<p class='hireai-label'>System Status</p>", unsafe_allow_html=True)
+        st.divider()
+        st.caption("SYSTEM STATUS")
         
         # Notifications
         if choice == "HR Dashboard":
@@ -198,15 +181,10 @@ def sidebar_nav():
                         pass
             
             if upcoming_meetings:
-                 st.markdown(f"""
-                    <div style='background: #fef2f2; border: 1px solid #fee2e2; padding: 12px; border-radius: 12px; margin-bottom: 20px; animation: pulse 2s infinite;'>
-                        <p style='color: #dc2626; font-weight: bold; font-size: 12px; margin: 0;'>🔔 Meeting Starting Soon</p>
-                        <p style='color: #7f1d1d; font-size: 11px; margin-top: 4px;'>Round 2 with {", ".join(upcoming_meetings)} starts in < 5 mins!</p>
-                    </div>
-                """, unsafe_allow_html=True)
+                 st.error(f"🔔 Meeting Starting: {', '.join(upcoming_meetings)}")
 
         if st.session_state.active_user:
-            if st.button("Logout Candidate"):
+            if st.button("Logout Candidate", type="primary"):
                 st.session_state.active_user = None
                 if 'aptitude_questions' in st.session_state:
                     del st.session_state.aptitude_questions
@@ -215,68 +193,67 @@ def sidebar_nav():
     return choice
 
 def view_candidate_portal():
-    st.markdown("<h1>Join HireAI Pipeline</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #64748b;'>Submit your profile for instant AI screening.</p>", unsafe_allow_html=True)
+    st.title("Join HireAI Pipeline")
+    st.markdown("Submit your profile for instant AI screening.")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("<div class='hireai-card'>", unsafe_allow_html=True)
-        name = st.text_input("Full Name", placeholder="John Doe")
-        email = st.text_input("Email Address", placeholder="john@example.com")
-        role = st.selectbox("Apply for Role", ["Software Engineer", "Frontend Developer", "Product Manager", "Data Analyst"])
-        resume = st.file_uploader("Upload Resume (TXT/PDF)", type=['txt', 'pdf'])
-        
-        if st.button("SUBMIT APPLICATION"):
-            if name and email and resume:
-                with st.spinner("AI is analyzing your profile..."):
-                    try:
-                        resume_text = resume.read().decode("utf-8", errors="ignore")
-                        analysis = screen_resume_ai(resume_text, role)
-                        access_key = generate_key()
-                        c_id = str(uuid.uuid4())
-                        
-                        new_candidate = {
-                            "id": c_id,
-                            "name": name,
-                            "email": email,
-                            "role": role,
-                            "status": "Screening",
-                            "score": analysis['overallScore'],
-                            "technical": analysis['technicalMatch'],
-                            "summary": analysis['summary'],
-                            "access_key": access_key,
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "aptitude_score": None,
-                            "aptitudeDate": None,
-                            "aptitudeTime": None,
-                            "round2Date": None,
-                            "round2Time": None,
-                            "round2Link": None
-                        }
-                        database.save_candidate(new_candidate)
-                        st.balloons()
-                        st.success("Profile Screened!")
-                        st.session_state.last_submitted = new_candidate
-                    except Exception as e:
-                        st.error(f"Error processing application: {e}")
-            else:
-                st.warning("Please fill all fields.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("Application Form")
+            name = st.text_input("Full Name", placeholder="John Doe")
+            email = st.text_input("Email Address", placeholder="john@example.com")
+            role = st.selectbox("Apply for Role", ["Software Engineer", "Frontend Developer", "Product Manager", "Data Analyst"])
+            resume = st.file_uploader("Upload Resume (TXT/PDF)", type=['txt', 'pdf'])
+            
+            if st.button("Submit Application", type="primary"):
+                if name and email and resume:
+                    with st.spinner("AI is analyzing your profile..."):
+                        try:
+                            resume_text = resume.read().decode("utf-8", errors="ignore")
+                            analysis = screen_resume_ai(resume_text, role)
+                            access_key = generate_key()
+                            c_id = str(uuid.uuid4())
+                            
+                            new_candidate = {
+                                "id": c_id,
+                                "name": name,
+                                "email": email,
+                                "role": role,
+                                "status": "Screening",
+                                "score": analysis['overallScore'],
+                                "technical": analysis['technicalMatch'],
+                                "summary": analysis['summary'],
+                                "access_key": access_key,
+                                "date": datetime.now().strftime("%Y-%m-%d"),
+                                "aptitude_score": None,
+                                "aptitudeDate": None,
+                                "aptitudeTime": None,
+                                "round2Date": None,
+                                "round2Time": None,
+                                "round2Link": None
+                            }
+                            database.save_candidate(new_candidate)
+                            st.balloons()
+                            st.success("Profile Screened Successfully!")
+                            st.session_state.last_submitted = new_candidate
+                        except Exception as e:
+                            st.error(f"Error processing application: {e}")
+                else:
+                    st.warning("Please fill all fields.")
 
     with col2:
         if 'last_submitted' in st.session_state:
             c = st.session_state.last_submitted
-            st.markdown(f"""
-                <div style='background: #eff6ff; border: 2px dashed #3b82f6; padding: 30px; border-radius: 24px; text-align: center;'>
-                    <p class='hireai-label' style='color: #3b82f6;'>Your Interview Key</p>
-                    <h1 style='font-size: 48px; color: #1d4ed8; margin: 10px 0;'>{c['access_key']}</h1>
-                    <p style='font-size: 14px; color: #1e40af;'>Save this key! You will need it to login later.</p>
-                </div>
-            """, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.info("Please save your credentials")
+                st.markdown(f"## {c['access_key']}")
+                st.caption("Use this Access Key to login to the interview portal.")
+                st.markdown(f"**Role:** {c['role']}")
+                st.markdown(f"**AI Score:** {c['score']}/100")
 
 def view_hr_dashboard():
-    st.markdown("<h1>Recruiter Command Center</h1>", unsafe_allow_html=True)
+    st.title("Recruiter Command Center")
     
     if not candidates:
         st.info("The pipeline is currently empty.")
@@ -287,58 +264,55 @@ def view_hr_dashboard():
     # 1. Pipeline Metrics
     m1, m2, m3 = st.columns(3)
     with m1:
-        st.markdown("<div class='hireai-card'>", unsafe_allow_html=True)
-        st.metric("Total Candidates", len(df))
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.metric("Total Candidates", len(df))
     with m2:
-        st.markdown("<div class='hireai-card'>", unsafe_allow_html=True)
-        # Handle nullable scores in dataframe
-        aptitude_takers = df[df['aptitude_score'].notnull()] if 'aptitude_score' in df.columns else pd.DataFrame()
-        avg_apt = int(aptitude_takers['aptitude_score'].mean()) if not aptitude_takers.empty else 0
-        st.metric("Avg Aptitude Score", f"{avg_apt}%")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            # Handle nullable scores in dataframe
+            aptitude_takers = df[df['aptitude_score'].notnull()] if 'aptitude_score' in df.columns else pd.DataFrame()
+            avg_apt = int(aptitude_takers['aptitude_score'].mean()) if not aptitude_takers.empty else 0
+            st.metric("Avg Aptitude Score", f"{avg_apt}%")
     with m3:
-        st.markdown("<div class='hireai-card'>", unsafe_allow_html=True)
-        upcoming = "None"
-        for c in candidates:
-             if c.get('round2Date'): 
-                 upcoming = f"{c['round2Date']} {c['round2Time']}"
-        st.metric("Next Interview", upcoming)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            upcoming = "None"
+            for c in candidates:
+                 if c.get('round2Date'): 
+                     upcoming = f"{c['round2Date']} {c['round2Time']}"
+            st.metric("Next Interview", upcoming)
 
     # 2. Actionable Pipeline
-    st.markdown("### 🚦 Candidate Stages")
+    st.subheader("Candidate Stages")
     
-    tabs = st.tabs(["1. Screening & Schedule", "2. Aptitude Results", "3. Round 2 Interviews"])
+    tabs = st.tabs(["Screening & Schedule", "Aptitude Results", "Round 2 Interviews"])
     
     # Tab 1: Schedule Aptitude
     with tabs[0]:
         for c in candidates:
             if c.get('status') == 'Screening':
-                with st.container():
-                    st.markdown(f"""
-                    <div class='hireai-card' style='display: flex; justify-content: space-between; align-items: center;'>
-                        <div>
-                            <h3 style='margin:0;'>{c['name']}</h3>
-                            <p style='color: #64748b; margin:0;'>{c['role']} • Resume Score: {c.get('score', 0)}</p>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with st.container(border=True):
+                    col_info, col_action = st.columns([1, 2])
+                    with col_info:
+                        st.subheader(c['name'])
+                        st.caption(f"{c['role']}")
+                        st.markdown(f"**Resume Score:** {c.get('score', 0)}")
                     
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    with c1:
-                        d = st.date_input("Exam Date", key=f"d_{c['id']}")
-                    with c2:
-                        t = st.time_input("Exam Start Time", key=f"t_{c['id']}")
-                    with c3:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("Schedule Exam", key=f"btn_{c['id']}"):
-                            c['aptitudeDate'] = d.strftime("%Y-%m-%d")
-                            c['aptitudeTime'] = t.strftime("%H:%M")
-                            c['status'] = 'Aptitude Scheduled'
-                            database.save_candidate(c)
-                            st.toast(f"Exam scheduled! Email sent to {c['email']}.", icon="📧")
-                            st.rerun()
+                    with col_action:
+                        st.markdown("**Schedule Exam**")
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        with c1:
+                            d = st.date_input("Date", key=f"d_{c['id']}")
+                        with c2:
+                            t = st.time_input("Time", key=f"t_{c['id']}")
+                        with c3:
+                            st.write("")
+                            st.write("")
+                            if st.button("Schedule", key=f"btn_{c['id']}", type="primary"):
+                                c['aptitudeDate'] = d.strftime("%Y-%m-%d")
+                                c['aptitudeTime'] = t.strftime("%H:%M")
+                                c['status'] = 'Aptitude Scheduled'
+                                database.save_candidate(c)
+                                st.toast(f"Exam scheduled for {c['name']}", icon="📧")
+                                st.rerun()
 
     # Tab 2: View Results & Schedule Round 2
     with tabs[1]:
@@ -349,43 +323,39 @@ def view_hr_dashboard():
         for c in completed:
             if c.get('status') != 'Interview Scheduled':
                 is_passed = c['aptitude_score'] >= 50
-                color = "#16a34a" if is_passed else "#dc2626"
-                result_text = "PASSED" if is_passed else "FAILED"
                 
-                with st.container():
-                    st.markdown(f"""
-                    <div class='hireai-card'>
-                        <div style='display: flex; justify-content: space-between;'>
-                            <h3>{c['name']}</h3>
-                            <div style='text-align: right;'>
-                                <span style='font-size: 24px; font-weight: 900; color: {color}'>{c['aptitude_score']}%</span>
-                                <span style='font-size: 12px; font-bold; color: {color}; background: {color}20; padding: 2px 6px; border-radius: 4px; vertical-align: middle; margin-left: 8px;'>{result_text}</span>
-                                <p style='font-size: 10px; text-transform: uppercase;'>Score</p>
-                            </div>
-                        </div>
-                        <p><strong>Role:</strong> {c['role']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with st.container(border=True):
+                    col_res, col_sched = st.columns([1, 2])
                     
-                    if is_passed:
-                        st.markdown("#### Schedule Round 2 Interview")
-                        cc1, cc2, cc3 = st.columns([2, 2, 1])
-                        with cc1:
-                            r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
-                        with cc2:
-                            r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
-                        with cc3:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            if st.button("Schedule Round 2", key=f"r2btn_{c['id']}"):
-                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                c['round2Time'] = r2t.strftime("%H:%M")
-                                c['round2Link'] = generate_meeting_link()
-                                c['status'] = 'Interview Scheduled'
-                                database.save_candidate(c)
-                                st.toast(f"Interview set! Invite sent to {c['email']}", icon="📅")
-                                st.rerun()
-                    else:
-                        st.error("Candidate failed aptitude cutoff (< 50%). Cannot schedule Round 2.")
+                    with col_res:
+                        st.subheader(c['name'])
+                        if is_passed:
+                            st.success(f"PASSED: {c['aptitude_score']}%")
+                        else:
+                            st.error(f"FAILED: {c['aptitude_score']}%")
+                        st.caption(c['role'])
+
+                    with col_sched:
+                        if is_passed:
+                            st.markdown("**Schedule Round 2**")
+                            cc1, cc2, cc3 = st.columns([2, 2, 1])
+                            with cc1:
+                                r2d = st.date_input("Date", key=f"r2d_{c['id']}")
+                            with cc2:
+                                r2t = st.time_input("Time", key=f"r2t_{c['id']}")
+                            with cc3:
+                                st.write("")
+                                st.write("")
+                                if st.button("Confirm", key=f"r2btn_{c['id']}", type="primary"):
+                                    c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                    c['round2Time'] = r2t.strftime("%H:%M")
+                                    c['round2Link'] = generate_meeting_link()
+                                    c['status'] = 'Interview Scheduled'
+                                    database.save_candidate(c)
+                                    st.toast(f"Interview set for {c['name']}", icon="📅")
+                                    st.rerun()
+                        else:
+                            st.warning("Candidate failed aptitude cutoff (< 50%).")
 
     # Tab 3: Upcoming Interviews
     with tabs[2]:
@@ -394,50 +364,40 @@ def view_hr_dashboard():
             st.info("No upcoming interviews.")
         
         for c in interviews:
-            st.markdown(f"""
-            <div class='hireai-card' style='border-left: 5px solid #2563eb;'>
-                <h3>{c['name']}</h3>
-                <p>📅 {c['round2Date']} at {c['round2Time']}</p>
-                <p>🔗 <a href='{c['round2Link']}' target='_blank'>{c['round2Link']}</a></p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.link_button(f"Join Meeting with {c['name']}", c['round2Link'])
+            with st.container(border=True):
+                st.subheader(c['name'])
+                st.write(f"📅 **{c['round2Date']}** at **{c['round2Time']}**")
+                st.link_button(f"Join Meeting ({c['round2Link']})", c['round2Link'])
 
 def view_interview_room():
     if not st.session_state.active_user:
-        st.markdown("<h1>Candidate Login</h1>", unsafe_allow_html=True)
-        st.markdown("<div class='hireai-card' style='max-width: 500px; margin: 0 auto;'>", unsafe_allow_html=True)
-        key_input = st.text_input("Enter your 8-digit Access Key", placeholder="XXXX-0000")
-        if st.button("LOGIN"):
-            match = next((c for c in candidates if c.get('access_key') == key_input), None)
-            if match:
-                st.session_state.active_user = match
-                st.rerun()
-            else:
-                st.error("Invalid key. Access Denied.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.title("Candidate Login")
+        col_c, _ = st.columns([1, 1])
+        with col_c:
+            with st.container(border=True):
+                key_input = st.text_input("Enter your 8-digit Access Key", placeholder="XXXX-0000")
+                if st.button("Login to Portal", type="primary"):
+                    match = next((c for c in candidates if c.get('access_key') == key_input), None)
+                    if match:
+                        st.session_state.active_user = match
+                        st.rerun()
+                    else:
+                        st.error("Invalid key. Access Denied.")
     else:
         user = st.session_state.active_user
         
         # --- VIEW 1: ROUND 2 INTERVIEW ---
         if user.get('status') == 'Interview Scheduled':
-            st.markdown(f"<h1>Final Interview: {user['name']}</h1>", unsafe_allow_html=True)
-            st.markdown(f"""
-                <div class='hireai-card' style='text-align: center; padding: 40px;'>
-                    <div style='font-size: 50px;'>🤝</div>
-                    <h2>Congratulations! You passed the Aptitude Round.</h2>
-                    <p>Your technical interview is scheduled for:</p>
-                    <h3 style='color: #2563eb; font-size: 24px;'>{user['round2Date']} at {user['round2Time']}</h3>
-                    <div style='margin-top: 30px;'>
-                        <a href='{user['round2Link']}' target='_blank' style='background: #2563eb; color: white; padding: 15px 30px; border-radius: 12px; text-decoration: none; font-weight: bold;'>JOIN VIDEO MEETING NOW</a>
-                    </div>
-                    <p style='margin-top: 20px; font-size: 12px; color: #64748b;'>HR has been notified of your readiness.</p>
-                </div>
-            """, unsafe_allow_html=True)
+            st.title(f"Final Interview: {user['name']}")
+            with st.container(border=True):
+                st.success("Congratulations! You passed the Aptitude Round.")
+                st.markdown(f"### Interview Time: {user['round2Date']} at {user['round2Time']}")
+                st.link_button("JOIN VIDEO MEETING NOW", user['round2Link'])
+                st.caption("HR has been notified of your readiness.")
             return
 
         # --- VIEW 2: APTITUDE EXAM GATING ---
-        st.markdown(f"<h1>Aptitude Portal: {user['name']}</h1>", unsafe_allow_html=True)
+        st.title(f"Aptitude Portal: {user['name']}")
         
         if not user.get('aptitudeDate'):
             st.info("Your exam has not been scheduled by HR yet. Please check back later.")
@@ -452,68 +412,52 @@ def view_interview_room():
             mins, secs = divmod(diff.seconds, 60)
             hours, mins = divmod(mins, 60)
             
-            st.markdown(f"""
-                <div class='hireai-card' style='text-align: center; border-left: 5px solid #f59e0b;'>
-                    <h3>⏳ Exam Locked</h3>
-                    <p>Your exam is scheduled for <strong>{scheduled_datetime_str}</strong>.</p>
-                    <p style='font-size: 20px; font-weight: bold; color: #f59e0b;'>
-                        Starts in: {diff.days}d {hours}h {mins}m
-                    </p>
-                    <p style='font-size: 12px; color: #94a3b8;'>Please refresh the page at the scheduled time.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Refresh Timer"):
-                st.rerun()
+            with st.container(border=True):
+                st.warning("Exam Locked")
+                st.markdown(f"### Starts in: {diff.days}d {hours}h {mins}m")
+                st.write(f"Scheduled for: **{scheduled_datetime_str}**")
+                if st.button("Refresh Timer"):
+                    st.rerun()
             return
 
         # --- VIEW 3: COMPLETED STATE ---
         if user.get('aptitude_score') is not None:
-             st.markdown(f"""
-                <div class='hireai-card' style='text-align: center; padding: 50px;'>
-                    <div style='font-size: 60px;'>🏆</div>
-                    <h2 style='color: #2563eb;'>Exam Submitted</h2>
-                    <p style='font-size: 18px; color: #64748b;'>Thank you. HR is reviewing your results.</p>
-                    <div style='font-size: 40px; font-weight: 900; color: #0f172a; margin-top: 20px;'>{user['aptitude_score']}%</div>
-                    <p class='hireai-label'>Final Score</p>
-                    <p style='margin-top: 20px; font-size: 12px;'>You will receive an email if you are shortlisted for Round 2.</p>
-                </div>
-             """, unsafe_allow_html=True)
+             with st.container(border=True):
+                 st.header("Exam Submitted")
+                 st.metric("Final Score", f"{user['aptitude_score']}%")
+                 st.info("Thank you. HR is reviewing your results.")
              return
 
         # --- VIEW 4: EXAM INTERFACE ---
         if 'aptitude_questions' not in st.session_state:
-            st.markdown("""
-                <div class='hireai-card'>
-                    <h3>Assessment Instructions</h3>
-                    <ul style='color: #475569; line-height: 1.8;'>
-                        <li>This exam consists of <strong>20 Multiple Choice Questions</strong>.</li>
-                        <li>Once you start, please complete all questions before submitting.</li>
-                    </ul>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("GENERATE & START EXAM"):
-                with st.spinner(f"AI is generating a unique test for {user['role']} role..."):
-                    st.session_state.aptitude_questions = generate_aptitude_questions(user['role'])
-                    st.rerun()
+            with st.container(border=True):
+                st.subheader("Assessment Instructions")
+                st.markdown("""
+                * This exam consists of **20 Multiple Choice Questions**.
+                * Once you start, please complete all questions before submitting.
+                """)
+                
+                if st.button("GENERATE & START EXAM", type="primary"):
+                    with st.spinner(f"AI is generating a unique test for {user['role']} role..."):
+                        st.session_state.aptitude_questions = generate_aptitude_questions(user['role'])
+                        st.rerun()
         else:
             questions = st.session_state.aptitude_questions
             with st.form("exam_form"):
                 user_answers = {}
                 for i, q in enumerate(questions):
-                    st.markdown(f"<div style='background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>", unsafe_allow_html=True)
-                    st.markdown(f"<span class='hireai-label'>{q['category']}</span>", unsafe_allow_html=True)
-                    st.markdown(f"<p style='font-weight: 700; font-size: 16px; margin: 8px 0;'>{i+1}. {q['question']}</p>", unsafe_allow_html=True)
+                    st.markdown(f"**{i+1}. {q['question']}**")
+                    st.caption(f"Category: {q['category']}")
                     
                     user_answers[i] = st.radio(
-                        f"Select answer for question {i+1}", 
+                        "Select Answer",
                         q['options'], 
                         key=f"q_{i}", 
                         label_visibility="collapsed"
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    st.divider()
                 
-                if st.form_submit_button("SUBMIT FINAL ANSWERS"):
+                if st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary"):
                     score = 0
                     for i, q in enumerate(questions):
                         selected_option = user_answers.get(i)
