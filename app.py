@@ -403,6 +403,7 @@ HireAI Recruiting Team
                                 "round2Date": None,
                                 "round2Time": None,
                                 "round2Link": None,
+                                "interview_round": 1, # Default to Round 1
                                 "email_status": email_status, 
                                 "email_error": email_msg if not email_sent else None,
                                 "archived": False
@@ -601,7 +602,7 @@ def view_hr_dashboard():
                                 if exp_years > 2:
                                     st.success("Senior Candidate")
                                     with st.popover("Schedule Interview"):
-                                        st.markdown("### 📅 Setup Interview (Skip Aptitude)")
+                                        st.markdown("### 📅 First Round Interview")
                                         r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
                                         r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
                                         st.divider()
@@ -611,11 +612,11 @@ def view_hr_dashboard():
                                         if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
                                             final_link = meet_link if meet_link else generate_meeting_link()
                                             
-                                            # --- SEND EMAIL ---
+                                            # --- SEND EMAIL (Senior - First Round) ---
                                             email_body = f"""
 Dear {c['name']},
 
-We are pleased to invite you to the final interview for the {c['role']} position.
+We are pleased to invite you to the First Round Interview for the {c['role']} position.
 
 Date: {r2d.strftime("%Y-%m-%d")}
 Time: {r2t.strftime("%H:%M")}
@@ -626,13 +627,14 @@ Please join the link at the scheduled time.
 Best regards,
 HireAI Recruiting Team
 """
-                                            email_sent, email_msg = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                            email_sent, email_msg = email_service.send_email(c['email'], "First Round Interview - HireAI", email_body)
                                             email_status = "Sent" if email_sent else "Failed"
 
                                             c['round2Date'] = r2d.strftime("%Y-%m-%d")
                                             c['round2Time'] = r2t.strftime("%H:%M")
                                             c['round2Link'] = final_link
                                             c['status'] = 'Interview Scheduled'
+                                            c['interview_round'] = 1
                                             c['email_status'] = email_status
                                             c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
@@ -725,8 +727,8 @@ HireAI Recruiting Team
                             with c4:
                                 if c['status'] == 'Aptitude Completed':
                                     if (c.get('aptitude_score') or 0) >= 50:
-                                        with st.popover("Schedule Round 2"):
-                                            st.markdown("### 📅 Setup Interview")
+                                        with st.popover("Schedule Round 1"):
+                                            st.markdown("### 📅 Setup First Round")
                                             r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
                                             r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
                                             st.divider()
@@ -736,11 +738,11 @@ HireAI Recruiting Team
                                             if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
                                                 final_link = meet_link if meet_link else generate_meeting_link()
                                                 
-                                                # --- SEND EMAIL ---
+                                                # --- SEND EMAIL (Junior - First Round) ---
                                                 email_body = f"""
 Dear {c['name']},
 
-Congratulations! You passed the aptitude test and have been selected for the final interview.
+Congratulations! You passed the aptitude test and have been selected for the First Round Interview.
 
 Date: {r2d.strftime("%Y-%m-%d")}
 Time: {r2t.strftime("%H:%M")}
@@ -751,13 +753,14 @@ Please join the link at the scheduled time.
 Best regards,
 HireAI Recruiting Team
 """
-                                                email_sent, email_msg = email_service.send_email(c['email'], "Interview Invitation - HireAI", email_body)
+                                                email_sent, email_msg = email_service.send_email(c['email'], "First Round Interview - HireAI", email_body)
                                                 email_status = "Sent" if email_sent else "Failed"
 
                                                 c['round2Date'] = r2d.strftime("%Y-%m-%d")
                                                 c['round2Time'] = r2t.strftime("%H:%M")
                                                 c['round2Link'] = final_link
                                                 c['status'] = 'Interview Scheduled'
+                                                c['interview_round'] = 1
                                                 c['email_status'] = email_status
                                                 c['email_error'] = email_msg if not email_sent else None
                                                 database.save_candidate(c)
@@ -803,11 +806,54 @@ HireAI Recruiting Team
                                     color = "green" if email_status == "Sent" else "grey"
                                     st.markdown(f"📧 Email: :{color}[{email_status}]")
                             with c2:
+                                round_num = c.get('interview_round', 1)
+                                st.markdown(f"📌 **Round {round_num}**")
                                 st.markdown(f"📅 **{c['round2Date']}**")
                                 st.markdown(f"⏰ **{c['round2Time']}**")
                                 st.caption(f"🔗 {c['round2Link']}")
                             with c3:
                                 st.link_button("Join Meeting", c['round2Link'])
+                                
+                                # Logic to schedule next round (Limit to 2 rounds for now)
+                                current_round = c.get('interview_round', 1)
+                                if current_round == 1:
+                                    with st.popover("Schedule Round 2"):
+                                        st.markdown("### 📅 Setup Round 2")
+                                        r3d = st.date_input("Date", key=f"r3d_{c['id']}")
+                                        r3t = st.time_input("Time", key=f"r3t_{c['id']}")
+                                        
+                                        if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
+                                            new_link = generate_meeting_link()
+                                            
+                                            email_body = f"""
+Dear {c['name']},
+
+We are pleased to invite you to the Second Round Interview for the {c['role']} position.
+
+Date: {r3d.strftime("%Y-%m-%d")}
+Time: {r3t.strftime("%H:%M")}
+Meeting Link: {new_link}
+
+Please join the link at the scheduled time.
+
+Best regards,
+HireAI Recruiting Team
+"""
+                                            email_sent, email_msg = email_service.send_email(c['email'], "Second Round Interview - HireAI", email_body)
+                                            email_status = "Sent" if email_sent else "Failed"
+
+                                            c['round2Date'] = r3d.strftime("%Y-%m-%d")
+                                            c['round2Time'] = r3t.strftime("%H:%M")
+                                            c['round2Link'] = new_link
+                                            c['interview_round'] = 2
+                                            c['email_status'] = email_status
+                                            c['email_error'] = email_msg if not email_sent else None
+                                            database.save_candidate(c)
+                                            
+                                            st.toast(f"Round 2 Scheduled! (Email: {email_status})")
+                                            time.sleep(1)
+                                            st.rerun()
+
                                 if st.button("Archive", key=f"arc_{c['id']}_int"):
                                     c['archived'] = True
                                     database.save_candidate(c)
@@ -1089,9 +1135,10 @@ def view_interview_room():
         
         # --- VIEW 1: ROUND 2 INTERVIEW ---
         if user.get('status') == 'Interview Scheduled':
-            st.title(f"Final Interview: {user['name']}")
+            round_label = "First Round" if user.get('interview_round', 1) == 1 else "Second Round"
+            st.title(f"{round_label} Interview: {user['name']}")
             with st.container(border=True):
-                st.success("Congratulations! You passed the Aptitude Round.")
+                st.success(f"You are scheduled for the {round_label} Interview.")
                 st.markdown(f"### Interview Time: {user['round2Date']} at {user['round2Time']}")
                 st.link_button("JOIN VIDEO MEETING NOW", user['round2Link'])
                 st.caption("HR has been notified of your readiness.")
