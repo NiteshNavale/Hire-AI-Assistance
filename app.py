@@ -352,6 +352,10 @@ def render_candidate_details(c):
         st.markdown(f"- **Date:** {c['round2Date']}")
         st.markdown(f"- **Time:** {c['round2Time']}")
         st.markdown(f"- **Link:** [Join Meeting]({c.get('round2Link', '#')})")
+        
+        # Show Recruiter Owner
+        recruiter = c.get('recruiter', 'Unassigned')
+        st.markdown(f"**👤 Interviewer:** {recruiter}")
     
     st.divider()
     
@@ -503,12 +507,9 @@ def view_candidate_portal():
                                 "interview_round": 1,
                                 "email_status": "Pending", 
                                 "email_error": None,
-                                "archived": False
+                                "archived": False,
+                                "recruiter": None # Initially unassigned
                             }
-                            
-                            # Send Email (Application Received)
-                            # We can reuse resend_candidate_email logic if we saved first, but let's keep direct send here for atomic flow
-                            # Actually, lets use the helper to ensure consistency
                             
                             database.save_candidate(new_candidate) # Save first to use helper
                             email_sent, email_msg = resend_candidate_email(new_candidate)
@@ -603,6 +604,7 @@ def view_hr_dashboard():
     st.title(f"Recruiter Command Center")
     st.caption(f"Logged in as: {st.session_state.hr_username}")
     
+    current_hr = st.session_state.hr_username
     active_candidates = [c for c in candidates if not c.get('archived')]
     archived_candidates = [c for c in candidates if c.get('archived')]
     
@@ -674,66 +676,81 @@ def view_hr_dashboard():
                                 color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
                                 st.markdown(f"📧 Email: :{color}[{email_status}]")
 
-                                # Resend Email Button
-                                if st.button("🔄 Resend Email", key=f"rs_{c['id']}"):
-                                    sent, msg = resend_candidate_email(c)
-                                    if sent: st.toast(f"Email resent to {c['email']}")
-                                    else: st.error(f"Failed: {msg}")
-                                    time.sleep(1)
-                                    st.rerun()
+                                # Check Ownership
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
+                                
+                                if is_owner:
+                                    if st.button("🔄 Resend Email", key=f"rs_{c['id']}"):
+                                        sent, msg = resend_candidate_email(c)
+                                        if sent: st.toast(f"Email resent to {c['email']}")
+                                        else: st.error(f"Failed: {msg}")
+                                        time.sleep(1)
+                                        st.rerun()
+                                else:
+                                    st.caption(f"🔒 Locked by {assigned}")
 
                             with c2:
                                 st.markdown(f"**{c.get('score', 0)}/100**")
                                 
-                                # NEW: View Profile Popover
+                                # NEW: View Profile Popover (Open to all)
                                 with st.popover("📄 View Profile"):
                                     render_candidate_details(c)
                                     
                             with c3:
-                                exp_years = c.get('years_experience', 0)
-                                if exp_years > 2:
-                                    st.success("Senior Candidate")
-                                    with st.popover("Schedule Interview"):
-                                        st.markdown("### 📅 First Round Interview")
-                                        r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
-                                        r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
-                                        st.divider()
-                                        meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.google.com/...")
-                                        
-                                        if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
-                                            final_link = meet_link if meet_link else generate_meeting_link()
-                                            
-                                            c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                            c['round2Time'] = r2t.strftime("%H:%M")
-                                            c['round2Link'] = final_link
-                                            c['status'] = 'Interview Scheduled'
-                                            c['interview_round'] = 1
-                                            database.save_candidate(c)
-                                            
-                                            # Send Email
-                                            resend_candidate_email(c)
-                                            st.toast(f"Interview Scheduled for {c['name']}")
-                                            st.rerun()
+                                # Check Ownership for Actions
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
+
+                                if not is_owner:
+                                    st.warning(f"Owned by {assigned}")
                                 else:
-                                    with st.popover("Schedule Exam"):
-                                        st.info("Junior: Aptitude Mandatory")
-                                        d = st.date_input("Date", key=f"d_{c['id']}")
-                                        t = st.time_input("Time", key=f"t_{c['id']}")
-                                        if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
-                                            c['aptitudeDate'] = d.strftime("%Y-%m-%d")
-                                            c['aptitudeTime'] = t.strftime("%H:%M")
-                                            c['status'] = 'Aptitude Scheduled'
-                                            database.save_candidate(c)
+                                    exp_years = c.get('years_experience', 0)
+                                    if exp_years > 2:
+                                        st.success("Senior Candidate")
+                                        with st.popover("Schedule Interview"):
+                                            st.markdown("### 📅 First Round Interview")
+                                            r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
+                                            r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
+                                            st.divider()
+                                            meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.google.com/...")
                                             
-                                            # Send Email
-                                            resend_candidate_email(c)
-                                            st.toast(f"Scheduled for {c['name']}")
-                                            st.rerun()
-                                
-                                if st.button("Archive", key=f"arc_{c['id']}"):
-                                    c['archived'] = True
-                                    database.save_candidate(c)
-                                    st.rerun()
+                                            if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
+                                                final_link = meet_link if meet_link else generate_meeting_link()
+                                                
+                                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                                c['round2Time'] = r2t.strftime("%H:%M")
+                                                c['round2Link'] = final_link
+                                                c['status'] = 'Interview Scheduled'
+                                                c['interview_round'] = 1
+                                                c['recruiter'] = current_hr # CLAIM OWNERSHIP
+                                                database.save_candidate(c)
+                                                
+                                                # Send Email
+                                                resend_candidate_email(c)
+                                                st.toast(f"Interview Scheduled. You are now the assigned recruiter.")
+                                                st.rerun()
+                                    else:
+                                        with st.popover("Schedule Exam"):
+                                            st.info("Junior: Aptitude Mandatory")
+                                            d = st.date_input("Date", key=f"d_{c['id']}")
+                                            t = st.time_input("Time", key=f"t_{c['id']}")
+                                            if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
+                                                c['aptitudeDate'] = d.strftime("%Y-%m-%d")
+                                                c['aptitudeTime'] = t.strftime("%H:%M")
+                                                c['status'] = 'Aptitude Scheduled'
+                                                # Aptitude doesn't strictly lock ownership yet, but scheduling interview will
+                                                database.save_candidate(c)
+                                                
+                                                # Send Email
+                                                resend_candidate_email(c)
+                                                st.toast(f"Scheduled for {c['name']}")
+                                                st.rerun()
+                                    
+                                    if st.button("Archive", key=f"arc_{c['id']}"):
+                                        c['archived'] = True
+                                        database.save_candidate(c)
+                                        st.rerun()
             
             # --- APTITUDE TAB ---
             with subtab_2:
@@ -758,12 +775,18 @@ def view_hr_dashboard():
                                 color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
                                 st.markdown(f"📧 Email: :{color}[{email_status}]")
                                 
-                                if st.button("🔄 Resend Email", key=f"rs_apt_{c['id']}"):
-                                    sent, msg = resend_candidate_email(c)
-                                    if sent: st.toast(f"Email resent to {c['email']}")
-                                    else: st.error(f"Failed: {msg}")
-                                    time.sleep(1)
-                                    st.rerun()
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
+
+                                if is_owner:
+                                    if st.button("🔄 Resend Email", key=f"rs_apt_{c['id']}"):
+                                        sent, msg = resend_candidate_email(c)
+                                        if sent: st.toast(f"Email resent to {c['email']}")
+                                        else: st.error(f"Failed: {msg}")
+                                        time.sleep(1)
+                                        st.rerun()
+                                else:
+                                    st.caption(f"🔒 Locked by {assigned}")
 
                             with c2:
                                 if c['status'] == 'Aptitude Scheduled':
@@ -783,40 +806,48 @@ def view_hr_dashboard():
                                 # View Profile
                                 with st.popover("📄 View Profile"):
                                     render_candidate_details(c)
-
-                                if c['status'] == 'Aptitude Completed':
-                                    if (c.get('aptitude_score') or 0) >= 50:
-                                        with st.popover("Schedule Round 1"):
-                                            st.markdown("### 📅 Setup First Round")
-                                            r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
-                                            r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
-                                            st.divider()
-                                            meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.google.com/...")
-                                            
-                                            if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
-                                                final_link = meet_link if meet_link else generate_meeting_link()
-                                                
-                                                c['round2Date'] = r2d.strftime("%Y-%m-%d")
-                                                c['round2Time'] = r2t.strftime("%H:%M")
-                                                c['round2Link'] = final_link
-                                                c['status'] = 'Interview Scheduled'
-                                                c['interview_round'] = 1
-                                                database.save_candidate(c)
-                                                
-                                                # Send Email
-                                                resend_candidate_email(c)
-                                                st.toast(f"Invite Sent!", icon="📨")
-                                                time.sleep(1)
-                                                st.rerun()
-                                    else:
-                                        st.error("Low Score")
-                                else:
-                                    st.caption("Waiting for exam...")
                                 
-                                if st.button("Archive", key=f"arc_{c['id']}_apt"):
-                                    c['archived'] = True
-                                    database.save_candidate(c)
-                                    st.rerun()
+                                # Ownership Check
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
+
+                                if not is_owner:
+                                    st.warning(f"Owned by {assigned}")
+                                else:
+                                    if c['status'] == 'Aptitude Completed':
+                                        if (c.get('aptitude_score') or 0) >= 50:
+                                            with st.popover("Schedule Round 1"):
+                                                st.markdown("### 📅 Setup First Round")
+                                                r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
+                                                r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
+                                                st.divider()
+                                                meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.google.com/...")
+                                                
+                                                if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
+                                                    final_link = meet_link if meet_link else generate_meeting_link()
+                                                    
+                                                    c['round2Date'] = r2d.strftime("%Y-%m-%d")
+                                                    c['round2Time'] = r2t.strftime("%H:%M")
+                                                    c['round2Link'] = final_link
+                                                    c['status'] = 'Interview Scheduled'
+                                                    c['interview_round'] = 1
+                                                    c['recruiter'] = current_hr # CLAIM OWNERSHIP
+                                                    database.save_candidate(c)
+                                                    
+                                                    # Send Email
+                                                    resend_candidate_email(c)
+                                                    st.toast(f"Invite Sent! Assigned to you.", icon="📨")
+                                                    time.sleep(1)
+                                                    st.rerun()
+                                        else:
+                                            st.error("Low Score")
+                                    else:
+                                        st.caption("Waiting for exam...")
+                                    
+                                    if st.button("Archive", key=f"arc_{c['id']}_apt"):
+                                        c['archived'] = True
+                                        database.save_candidate(c)
+                                        st.rerun()
 
             # --- INTERVIEW TAB ---
             with subtab_3:
@@ -836,16 +867,23 @@ def view_hr_dashboard():
                                 st.markdown(f"**{c['name']}**")
                                 st.caption(c['role'])
                                 
+                                # Ownership Check
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
+                                
                                 email_status = c.get('email_status', 'Unknown')
                                 color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
                                 st.markdown(f"📧 Email: :{color}[{email_status}]")
-
-                                if st.button("🔄 Resend Email", key=f"rs_int_{c['id']}"):
-                                    sent, msg = resend_candidate_email(c)
-                                    if sent: st.toast(f"Email resent to {c['email']}")
-                                    else: st.error(f"Failed: {msg}")
-                                    time.sleep(1)
-                                    st.rerun()
+                                
+                                if is_owner:
+                                    if st.button("🔄 Resend Email", key=f"rs_int_{c['id']}"):
+                                        sent, msg = resend_candidate_email(c)
+                                        if sent: st.toast(f"Email resent to {c['email']}")
+                                        else: st.error(f"Failed: {msg}")
+                                        time.sleep(1)
+                                        st.rerun()
+                                else:
+                                    st.caption(f"🔒 Locked by {assigned}")
 
                             with c2:
                                 round_num = c.get('interview_round', 1)
@@ -853,45 +891,61 @@ def view_hr_dashboard():
                                 st.markdown(f"📅 **{c['round2Date']}**")
                                 st.markdown(f"⏰ **{c['round2Time']}**")
                                 st.caption(f"🔗 {c['round2Link']}")
+                                
+                                # Display Recruiter Badge
+                                recruiter_display = c.get('recruiter', 'Unassigned')
+                                if recruiter_display == current_hr:
+                                    st.markdown(f"**👤 Interviewer:** :green[{recruiter_display} (You)]")
+                                else:
+                                    st.markdown(f"**👤 Interviewer:** :orange[{recruiter_display}]")
+
                             with c3:
                                 st.link_button("Join Meeting", c['round2Link'])
                                 
                                 # View Profile
                                 with st.popover("📄 View Profile"):
                                     render_candidate_details(c)
+                                
+                                # Actions restricted to owner
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr
 
-                                current_round = c.get('interview_round', 1)
-                                if current_round == 1:
-                                    with st.popover("Schedule Round 2"):
-                                        st.markdown("### 📅 Setup Round 2")
-                                        r3d = st.date_input("Date", key=f"r3d_{c['id']}")
-                                        r3t = st.time_input("Time", key=f"r3t_{c['id']}")
-                                        
-                                        # Added Input field for Meeting Link
-                                        st.divider()
-                                        st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
-                                        meet_link = st.text_input("Meeting Link", key=f"lnk_r2_{c['id']}", placeholder="https://meet.google.com/...")
-                                        
-                                        if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
-                                            # Use input link if provided, otherwise generate random
-                                            new_link = meet_link if meet_link else generate_meeting_link()
+                                if not is_owner:
+                                    st.error(f"Locked by {assigned}")
+                                else:
+                                    current_round = c.get('interview_round', 1)
+                                    if current_round == 1:
+                                        with st.popover("Schedule Round 2"):
+                                            st.markdown("### 📅 Setup Round 2")
+                                            r3d = st.date_input("Date", key=f"r3d_{c['id']}")
+                                            r3t = st.time_input("Time", key=f"r3t_{c['id']}")
                                             
-                                            c['round2Date'] = r3d.strftime("%Y-%m-%d")
-                                            c['round2Time'] = r3t.strftime("%H:%M")
-                                            c['round2Link'] = new_link
-                                            c['interview_round'] = 2
-                                            database.save_candidate(c)
+                                            # Added Input field for Meeting Link
+                                            st.divider()
+                                            st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
+                                            meet_link = st.text_input("Meeting Link", key=f"lnk_r2_{c['id']}", placeholder="https://meet.google.com/...")
                                             
-                                            # Send Email
-                                            resend_candidate_email(c)
-                                            st.toast(f"Round 2 Scheduled!")
-                                            time.sleep(1)
-                                            st.rerun()
+                                            if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
+                                                # Use input link if provided, otherwise generate random
+                                                new_link = meet_link if meet_link else generate_meeting_link()
+                                                
+                                                c['round2Date'] = r3d.strftime("%Y-%m-%d")
+                                                c['round2Time'] = r3t.strftime("%H:%M")
+                                                c['round2Link'] = new_link
+                                                c['interview_round'] = 2
+                                                c['recruiter'] = current_hr # Ensure ownership sticks
+                                                database.save_candidate(c)
+                                                
+                                                # Send Email
+                                                resend_candidate_email(c)
+                                                st.toast(f"Round 2 Scheduled!")
+                                                time.sleep(1)
+                                                st.rerun()
 
-                                if st.button("Archive", key=f"arc_{c['id']}_int"):
-                                    c['archived'] = True
-                                    database.save_candidate(c)
-                                    st.rerun()
+                                    if st.button("Archive", key=f"arc_{c['id']}_int"):
+                                        c['archived'] = True
+                                        database.save_candidate(c)
+                                        st.rerun()
 
     # --- JOB MANAGEMENT TAB ---
     with tab_jobs:
