@@ -106,6 +106,10 @@ def generate_key():
 def generate_meeting_link():
     return f"https://meet.google.com/{''.join(random.choices(string.ascii_lowercase, k=3))}-{''.join(random.choices(string.ascii_lowercase, k=4))}-{''.join(random.choices(string.ascii_lowercase, k=3))}"
 
+def set_generated_link_callback(key):
+    """Callback to update session state with a new meeting link before render."""
+    st.session_state[key] = generate_meeting_link()
+
 def check_email_config():
     """Checks if SendGrid credentials are present."""
     api_key = os.environ.get("SENDGRID_API_KEY")
@@ -934,17 +938,21 @@ def view_hr_dashboard():
                                         
                                         col_l1, col_l2 = st.columns([3, 1])
                                         with col_l1:
-                                            admin_link = st.text_input("Meeting Link", value=c['round2Link'], key=f"ad_l_{c['id']}")
+                                            admin_link = st.text_input("Meeting Link", value=c.get('round2Link', ''), key=f"ad_l_{c['id']}")
                                         with col_l2:
-                                            if st.button("Auto-Gen", key=f"gen_{c['id']}", help="Generate new Google Meet link"):
-                                                st.session_state[f"ad_l_{c['id']}"] = generate_meeting_link()
-                                                st.rerun()
+                                            st.button(
+                                                "Auto-Gen", 
+                                                key=f"gen_{c['id']}", 
+                                                help="Generate new Google Meet link",
+                                                on_click=set_generated_link_callback,
+                                                args=(f"ad_l_{c['id']}",)
+                                            )
 
                                         if st.button("Update & Notify Candidate", type="primary", key=f"ad_upd_{c['id']}"):
                                             c['round2Date'] = admin_date.strftime("%Y-%m-%d")
                                             c['round2Time'] = admin_time.strftime("%H:%M")
                                             # Use the value from the text input state if available
-                                            c['round2Link'] = st.session_state.get(f"ad_l_{c['id']}", c['round2Link'])
+                                            c['round2Link'] = st.session_state.get(f"ad_l_{c['id']}", c.get('round2Link', ''))
                                             database.save_candidate(c)
                                             
                                             # Send Email
