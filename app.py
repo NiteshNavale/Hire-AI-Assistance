@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -19,9 +18,8 @@ import database  # Import the shared database module
 # This ensures it works on local machines, VPS, and hosting panels using .env files
 load_dotenv()
 
-# Force reload of database module to pick up schema changes/new functions
-# This fixes the "AttributeError: module 'database' has no attribute 'get_jobs'"
-importlib.reload(database)
+# Note: Removed importlib.reload(database) as it was causing ImportError in some environments.
+# Streamlit automatically watches for file changes in development.
 
 # --- PREMIUM UI CONFIGURATION ---
 st.set_page_config(
