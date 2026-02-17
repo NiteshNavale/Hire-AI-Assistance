@@ -605,6 +605,7 @@ def view_hr_dashboard():
     st.caption(f"Logged in as: {st.session_state.hr_username}")
     
     current_hr = st.session_state.hr_username
+    is_super_admin = current_hr == "admin"
     active_candidates = [c for c in candidates if not c.get('archived')]
     archived_candidates = [c for c in candidates if c.get('archived')]
     
@@ -678,7 +679,7 @@ def view_hr_dashboard():
 
                                 # Check Ownership
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
                                 
                                 if is_owner:
                                     if st.button("🔄 Resend Email", key=f"rs_{c['id']}"):
@@ -700,7 +701,7 @@ def view_hr_dashboard():
                             with c3:
                                 # Check Ownership for Actions
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
 
                                 if not is_owner:
                                     st.warning(f"Owned by {assigned}")
@@ -776,7 +777,7 @@ def view_hr_dashboard():
                                 st.markdown(f"📧 Email: :{color}[{email_status}]")
                                 
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
 
                                 if is_owner:
                                     if st.button("🔄 Resend Email", key=f"rs_apt_{c['id']}"):
@@ -809,7 +810,7 @@ def view_hr_dashboard():
                                 
                                 # Ownership Check
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
 
                                 if not is_owner:
                                     st.warning(f"Owned by {assigned}")
@@ -869,7 +870,7 @@ def view_hr_dashboard():
                                 
                                 # Ownership Check
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
                                 
                                 email_status = c.get('email_status', 'Unknown')
                                 color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
@@ -906,9 +907,54 @@ def view_hr_dashboard():
                                 with st.popover("📄 View Profile"):
                                     render_candidate_details(c)
                                 
-                                # Actions restricted to owner
+                                # SUPER ADMIN CONTROLS
+                                if is_super_admin:
+                                    with st.popover("⚡ Admin Controls"):
+                                        st.markdown("### Super Admin Override")
+                                        
+                                        # 1. Reassign Recruiter
+                                        all_users = [u['username'] for u in database.get_users()]
+                                        current_idx = 0
+                                        if assigned in all_users:
+                                            current_idx = all_users.index(assigned)
+                                            
+                                        new_owner = st.selectbox("Assign Interviewer", all_users, index=current_idx, key=f"own_{c['id']}")
+                                        if st.button("Reassign Ownership", key=f"btn_own_{c['id']}"):
+                                            c['recruiter'] = new_owner
+                                            database.save_candidate(c)
+                                            st.toast(f"Reassigned to {new_owner}")
+                                            st.rerun()
+                                        
+                                        st.divider()
+                                        
+                                        # 2. Force Reschedule / Update Link
+                                        st.markdown("**Force Reschedule / Update Link**")
+                                        admin_date = st.date_input("Date", value=datetime.strptime(c['round2Date'], "%Y-%m-%d"), key=f"ad_d_{c['id']}")
+                                        admin_time = st.time_input("Time", value=datetime.strptime(c['round2Time'], "%H:%M"), key=f"ad_t_{c['id']}")
+                                        
+                                        col_l1, col_l2 = st.columns([3, 1])
+                                        with col_l1:
+                                            admin_link = st.text_input("Meeting Link", value=c['round2Link'], key=f"ad_l_{c['id']}")
+                                        with col_l2:
+                                            if st.button("Auto-Gen", key=f"gen_{c['id']}", help="Generate new Google Meet link"):
+                                                st.session_state[f"ad_l_{c['id']}"] = generate_meeting_link()
+                                                st.rerun()
+
+                                        if st.button("Update & Notify Candidate", type="primary", key=f"ad_upd_{c['id']}"):
+                                            c['round2Date'] = admin_date.strftime("%Y-%m-%d")
+                                            c['round2Time'] = admin_time.strftime("%H:%M")
+                                            # Use the value from the text input state if available
+                                            c['round2Link'] = st.session_state.get(f"ad_l_{c['id']}", c['round2Link'])
+                                            database.save_candidate(c)
+                                            
+                                            # Send Email
+                                            resend_candidate_email(c)
+                                            st.toast("Updated & Email Sent!")
+                                            st.rerun()
+
+                                # Actions restricted to owner (or admin who is now also an owner effectively)
                                 assigned = c.get('recruiter')
-                                is_owner = not assigned or assigned == current_hr
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
 
                                 if not is_owner:
                                     st.error(f"Locked by {assigned}")
@@ -933,7 +979,9 @@ def view_hr_dashboard():
                                                 c['round2Time'] = r3t.strftime("%H:%M")
                                                 c['round2Link'] = new_link
                                                 c['interview_round'] = 2
-                                                c['recruiter'] = current_hr # Ensure ownership sticks
+                                                # Only set recruiter if not already set, or if admin is taking over normal flow
+                                                if not c.get('recruiter'):
+                                                    c['recruiter'] = current_hr 
                                                 database.save_candidate(c)
                                                 
                                                 # Send Email
