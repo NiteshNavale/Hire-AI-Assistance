@@ -58,6 +58,11 @@ def apply_custom_styles():
             border-radius: 8px; font-weight: 600;
         }
         
+        /* Popover styling tweaks */
+        div[data-testid="stPopoverBody"] {
+            border-radius: 12px;
+        }
+
         /* Hide default Streamlit chrome */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;} 
@@ -108,15 +113,91 @@ def check_email_config():
         api_key = st.secrets["SENDGRID_API_KEY"]
     return api_key is not None
 
+def resend_candidate_email(c):
+    """
+    Reconstructs and resends the last relevant email based on candidate status.
+    Returns: (success: bool, msg: str)
+    """
+    subject = ""
+    body = ""
+    status = c.get('status', 'Screening')
+    
+    if status == 'Screening':
+        subject = f"Application Received: {c['role']}"
+        body = f"""
+Dear {c['name']},
+
+Thank you for applying for the position of {c['role']} at HireAI.
+
+Your application has been received and screened by our AI system.
+To track your status or take assessments, please login to the Candidate Portal.
+
+Your Access Key: {c.get('access_key', 'N/A')}
+
+Best regards,
+HireAI Recruiting Team
+"""
+    elif status == 'Aptitude Scheduled':
+        subject = "Aptitude Assessment Scheduled - HireAI"
+        body = f"""
+Dear {c['name']},
+
+You have been shortlisted for the Aptitude Assessment for the {c['role']} position.
+
+Date: {c.get('aptitudeDate', 'TBD')}
+Time: {c.get('aptitudeTime', 'TBD')}
+
+Please login to the Candidate Portal using your Access Key: {c.get('access_key', 'N/A')}
+
+Best regards,
+HireAI Recruiting Team
+"""
+    elif status == 'Aptitude Completed':
+        score = c.get('aptitude_score', 0)
+        if score >= 50:
+            subject = "Aptitude Test Passed - HireAI"
+            body = f"Dear {c['name']},\n\nCongratulations! You have passed the aptitude assessment with a score of {score}%.\n\nOur team will review your profile and schedule the final interview shortly.\n\nBest regards,\nHireAI Recruiting Team"
+        else:
+            subject = "Application Update - HireAI"
+            body = f"Dear {c['name']},\n\nThank you for completing the aptitude assessment.\n\nUnfortunately, your score of {score}% did not meet the required threshold for this role.\n\nWe encourage you to apply again after 6 months.\n\nBest regards,\nHireAI Recruiting Team"
+    
+    elif status == 'Interview Scheduled':
+        round_num = c.get('interview_round', 1)
+        round_name = "First Round" if round_num == 1 else "Second Round"
+        subject = f"{round_name} Interview - HireAI"
+        body = f"""
+Dear {c['name']},
+
+We are pleased to invite you to the {round_name} Interview for the {c['role']} position.
+
+Date: {c.get('round2Date', 'TBD')}
+Time: {c.get('round2Time', 'TBD')}
+Meeting Link: {c.get('round2Link', '#')}
+
+Please join the link at the scheduled time.
+
+Best regards,
+HireAI Recruiting Team
+"""
+    else:
+        return False, "No email template found for current status."
+
+    # Send
+    email_sent, email_msg = email_service.send_email(c['email'], subject, body)
+    
+    # Update DB with new email status
+    c['email_status'] = "Sent" if email_sent else "Failed"
+    c['email_error'] = email_msg if not email_sent else None
+    database.save_candidate(c)
+    
+    return email_sent, email_msg
+
 # --- AI LOGIC ---
 def screen_resume_ai(text, role_title, job_description, skills_required, min_experience):
     """
     Screens resume with temperature=0.0 and a fixed seed for deterministic results.
-    Uses the specific Job Description provided by HR.
-    Includes Retry Logic for 429 Errors.
     """
     
-    # Generate a deterministic integer seed from the content
     seed_str = f"{text[:100]}{job_description[:100]}{len(text)}"
     seed = sum(ord(char) for char in seed_str)
 
@@ -144,9 +225,8 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
     5. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
     """
     
-    # Retry configuration
     max_retries = 3
-    base_delay = 20 # Seconds (Generous wait to clear 429 quota)
+    base_delay = 20 
 
     for attempt in range(max_retries):
         try:
@@ -154,8 +234,8 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
                 model='gemini-3-flash-preview',
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.0, # CRITICAL: Zero temperature ensures consistent/deterministic results
-                    seed=seed,       # CRITICAL: Fixed seed ensures reproducibility
+                    temperature=0.0, 
+                    seed=seed,       
                     response_mime_type='application/json',
                     response_schema={
                         'type': 'OBJECT',
@@ -172,7 +252,6 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
             return json.loads(response.text)
         except Exception as e:
             error_msg = str(e)
-            # Check for Rate Limit (429) errors
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 if attempt < max_retries - 1:
                     wait_time = base_delay * (attempt + 1)
@@ -180,8 +259,6 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
                     st.toast(f"High AI Traffic. Retrying in {wait_time}s...", icon="⏳")
                     time.sleep(wait_time)
                     continue
-            
-            # If it's another error or we ran out of retries, raise it
             raise e
 
 def generate_aptitude_questions(role):
@@ -202,7 +279,6 @@ def generate_aptitude_questions(role):
     - 'category' (string)
     """
     
-    # Retry configuration
     max_retries = 3
     base_delay = 20
 
@@ -241,6 +317,54 @@ def generate_aptitude_questions(role):
                     continue
             raise e
 
+# --- UI COMPONENTS ---
+def render_candidate_details(c):
+    """
+    Renders a detailed view of the candidate inside a Popover/Expander.
+    """
+    st.markdown(f"### {c['name']}")
+    st.caption(f"Role: {c['role']} | ID: {c['id'][:8]}")
+    
+    # 1. Scores & Key Metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Overall Score", f"{c.get('score', 0)}/100")
+    col2.metric("Tech Match", f"{c.get('technical', 0)}/100")
+    col3.metric("Experience", f"{c.get('years_experience', 0)} Years")
+    
+    st.divider()
+    
+    # 2. AI Summary
+    st.markdown("**🤖 AI Resume Analysis:**")
+    st.info(c.get('summary', 'No summary available.'))
+    
+    # 3. Assessment Details
+    if c.get('aptitude_score') is not None:
+        st.markdown("**📝 Aptitude Results:**")
+        score = c.get('aptitude_score', 0)
+        color = "green" if score >= 50 else "red"
+        st.markdown(f"**Score:** :{color}[{score}%]")
+        if c.get('aptitudeDate'):
+             st.caption(f"Scheduled: {c['aptitudeDate']} {c['aptitudeTime']}")
+    
+    # 4. Interview Details
+    if c.get('round2Date'):
+        st.markdown(f"**🤝 Interview (Round {c.get('interview_round', 1)}):**")
+        st.markdown(f"- **Date:** {c['round2Date']}")
+        st.markdown(f"- **Time:** {c['round2Time']}")
+        st.markdown(f"- **Link:** [Join Meeting]({c.get('round2Link', '#')})")
+    
+    st.divider()
+    
+    # 5. Admin Info
+    st.markdown("**🔐 Admin Details:**")
+    st.text_input("Access Key (Candidate Login)", value=c.get('access_key', 'N/A'), disabled=True, key=f"ak_{c['id']}")
+    st.text_input("Email", value=c['email'], disabled=True, key=f"em_{c['id']}")
+    
+    email_st = c.get('email_status', 'Unknown')
+    st.markdown(f"**Last Email Status:** {email_st}")
+    if c.get('email_error'):
+        st.error(f"Error: {c['email_error']}")
+
 # --- VIEWS ---
 def sidebar_nav():
     with st.sidebar:
@@ -250,7 +374,6 @@ def sidebar_nav():
         with col_title:
              st.markdown("### HireAI")
         
-        # Using a key ensures better state stability
         choice = st.radio("Navigation", 
                          ["Candidate Portal", "Candidate Login", "HR Dashboard"],
                          key="nav_radio")
@@ -258,7 +381,6 @@ def sidebar_nav():
         st.divider()
         st.caption("SYSTEM STATUS")
         
-        # Email Status Indicator
         is_email_configured = check_email_config()
         if is_email_configured:
             st.markdown("📧 **Email Service**: :green[Active] (SendGrid)")
@@ -266,7 +388,6 @@ def sidebar_nav():
             st.markdown("📧 **Email Service**: :red[Mock Mode]")
             st.caption("Set SENDGRID_API_KEY in .env")
 
-        # Notifications
         if choice == "HR Dashboard" and st.session_state.hr_authenticated:
             upcoming_meetings = []
             now = datetime.now()
@@ -283,7 +404,6 @@ def sidebar_nav():
             if upcoming_meetings:
                  st.error(f"🔔 Meeting Starting: {', '.join(upcoming_meetings)}")
 
-        # HR Logout
         if st.session_state.hr_authenticated:
             st.markdown(f"👤 **{st.session_state.hr_username}**")
             if st.button("Logout HR", key="logout_hr", type="secondary"):
@@ -291,7 +411,6 @@ def sidebar_nav():
                 st.session_state.hr_username = None
                 st.rerun()
 
-        # Candidate Logout
         if st.session_state.active_user:
             if st.button("Logout Candidate", type="primary"):
                 st.session_state.active_user = None
@@ -305,7 +424,6 @@ def view_candidate_portal():
     st.title("Join HireAI Pipeline")
     st.markdown("Submit your profile for instant AI screening.")
     
-    # Reload jobs to ensure we have latest
     current_jobs = database.get_jobs()
     
     if not current_jobs:
@@ -318,7 +436,6 @@ def view_candidate_portal():
         with st.container(border=True):
             st.subheader("Application Form")
             
-            # Initialize session state for inputs if not present
             if 'cp_name' not in st.session_state: st.session_state.cp_name = ""
             if 'cp_email' not in st.session_state: st.session_state.cp_email = ""
             if 'cp_uploader_key' not in st.session_state: st.session_state.cp_uploader_key = 0
@@ -326,11 +443,9 @@ def view_candidate_portal():
             name = st.text_input("Full Name", placeholder="John Doe", key="cp_name")
             email = st.text_input("Email Address", placeholder="john@example.com", key="cp_email")
             
-            # Dynamic Dropdown based on DB jobs
             job_options = {j['title']: j for j in current_jobs}
             selected_role_title = st.selectbox("Apply for Role", list(job_options.keys()))
             
-            # Show the description of selected job
             selected_job = job_options[selected_role_title]
             
             with st.expander("View Job Requirements"):
@@ -342,7 +457,6 @@ def view_candidate_portal():
                 st.markdown("---")
                 st.write(selected_job['description'])
 
-            # File uploader with dynamic key for resetting
             resume = st.file_uploader(
                 "Upload Resume (TXT/PDF)", 
                 type=['txt', 'pdf'],
@@ -355,7 +469,6 @@ def view_candidate_portal():
                         try:
                             resume_text = resume.read().decode("utf-8", errors="ignore")
                             
-                            # Pass specific JD, Skills and Exp to AI
                             analysis = screen_resume_ai(
                                 resume_text, 
                                 selected_role_title, 
@@ -367,48 +480,42 @@ def view_candidate_portal():
                             access_key = generate_key()
                             c_id = str(uuid.uuid4())
                             
-                            # --- SEND EMAIL NOTIFICATION ---
-                            email_body = f"""
-Dear {name},
-
-Thank you for applying for the position of {selected_role_title} at HireAI.
-
-Your application has been received and screened by our AI system.
-To track your status or take assessments, please login to the Candidate Portal.
-
-Your Access Key: {access_key}
-
-Best regards,
-HireAI Recruiting Team
-"""
-                            email_sent, email_msg = email_service.send_email(email, f"Application Received: {selected_role_title}", email_body)
-                            email_status = "Sent" if email_sent else "Failed"
-
+                            # Initial Object
                             new_candidate = {
                                 "id": c_id,
                                 "name": name,
                                 "email": email,
-                                "role": selected_role_title, # Store the title
+                                "role": selected_role_title,
                                 "status": "Screening",
                                 "score": analysis['overallScore'],
                                 "technical": analysis['technicalMatch'],
-                                "years_experience": analysis.get('years_experience', 0), # Save extracted experience
+                                "years_experience": analysis.get('years_experience', 0),
                                 "summary": analysis['summary'],
                                 "access_key": access_key,
                                 "date": datetime.now().strftime("%Y-%m-%d"),
                                 "aptitude_score": None,
-                                "aptitude_details": None, # Store detailed results
+                                "aptitude_details": None,
                                 "aptitudeDate": None,
                                 "aptitudeTime": None,
                                 "round2Date": None,
                                 "round2Time": None,
                                 "round2Link": None,
-                                "interview_round": 1, # Default to Round 1
-                                "email_status": email_status, 
-                                "email_error": email_msg if not email_sent else None,
+                                "interview_round": 1,
+                                "email_status": "Pending", 
+                                "email_error": None,
                                 "archived": False
                             }
-                            database.save_candidate(new_candidate)
+                            
+                            # Send Email (Application Received)
+                            # We can reuse resend_candidate_email logic if we saved first, but let's keep direct send here for atomic flow
+                            # Actually, lets use the helper to ensure consistency
+                            
+                            database.save_candidate(new_candidate) # Save first to use helper
+                            email_sent, email_msg = resend_candidate_email(new_candidate)
+                            
+                            # Reload to get updated status
+                            new_candidate['email_status'] = "Sent" if email_sent else "Failed"
+                            new_candidate['email_error'] = email_msg if not email_sent else None
                             
                             st.balloons()
                             if email_sent:
@@ -422,15 +529,10 @@ HireAI Recruiting Team
                             st.session_state.last_submitted = new_candidate
                             st.session_state.submission_time = time.time()
                             
-                            # --- CLEAR FORM INPUTS ---
-                            # Reset text inputs by updating key values in session state (hack for reruns)
-                            # Actually, for next rerun, we just delete values.
                             del st.session_state.cp_name
                             del st.session_state.cp_email
-                            # Increment uploader key to reset it
                             st.session_state.cp_uploader_key += 1
                             
-                            # Trigger rerun to show empty form + result panel
                             st.rerun()
 
                         except Exception as e:
@@ -440,13 +542,11 @@ HireAI Recruiting Team
 
     with col2:
         if 'last_submitted' in st.session_state:
-            # FIX: Ensure submission_time exists to prevent AttributeError on page reload/state loss
             if 'submission_time' not in st.session_state:
                 del st.session_state.last_submitted
                 st.rerun()
                 return
 
-            # Check expiry (60 seconds)
             elapsed = time.time() - st.session_state.submission_time
             if elapsed > 60:
                 del st.session_state.last_submitted
@@ -465,7 +565,6 @@ HireAI Recruiting Team
                 st.markdown(f"**Role:** {c['role']}")
                 st.markdown(f"**Experience:** {c.get('years_experience', 0)} Years")
                 st.markdown(f"**AI Score:** {c['score']}/100")
-                st.markdown("**Note:** This score is based strictly on the skills and experience required.")
                 
                 st.divider()
                 st.error(f"This screen will close in {remaining} seconds.")
@@ -476,15 +575,12 @@ HireAI Recruiting Team
                         del st.session_state.submission_time
                      st.rerun()
             
-            # Trigger refresh for countdown
             time.sleep(1)
             st.rerun()
 
 def view_hr_dashboard():
-    # --- LOGIN CHECK ---
     if not st.session_state.hr_authenticated:
         st.title("Recruiter Login")
-        
         col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
         with col_c2:
             with st.container(border=True):
@@ -501,15 +597,12 @@ def view_hr_dashboard():
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
-                
                 st.caption("Default Admin: `admin` / `admin123`")
         return
 
-    # --- DASHBOARD CONTENT ---
     st.title(f"Recruiter Command Center")
     st.caption(f"Logged in as: {st.session_state.hr_username}")
     
-    # Reload data
     active_candidates = [c for c in candidates if not c.get('archived')]
     archived_candidates = [c for c in candidates if c.get('archived')]
     
@@ -520,9 +613,7 @@ def view_hr_dashboard():
         f"Archived ({len(archived_candidates)})"
     ])
     
-    # --- ACTIVE PIPELINE TAB ---
     with tab_pipeline:
-        # Metrics
         df_active = pd.DataFrame(active_candidates)
         m1, m2, m3 = st.columns(3)
         with m1:
@@ -549,7 +640,6 @@ def view_hr_dashboard():
         if not active_candidates:
             st.info("No active candidates in the pipeline.")
         else:
-            # Filter by Stage
             stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
             stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
             stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
@@ -560,7 +650,7 @@ def view_hr_dashboard():
                 f"🤝 Interviews ({len(stage_interview)})"
             ])
             
-            # 1. SCREENING TAB
+            # --- SCREENING TAB ---
             with subtab_1:
                 if not stage_screening:
                     st.info("No candidates pending screening.")
@@ -580,24 +670,26 @@ def view_hr_dashboard():
                                 exp_years = c.get('years_experience', 0)
                                 st.caption(f"📅 Exp: {exp_years} Years")
                                 
-                                # EMAIL STATUS WITH DEBUGGING
                                 email_status = c.get('email_status', 'Unknown')
-                                if email_status == "Failed":
-                                    st.markdown(f"📧 Email: :red[Failed]")
-                                    if c.get('email_error'):
-                                        with st.popover("Error Log"):
-                                            st.error(c['email_error'])
-                                            st.caption("Check .env/Secrets credentials.")
-                                else:
-                                    color = "green" if email_status == "Sent" else "grey"
-                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
-                                
+                                color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
+                                st.markdown(f"📧 Email: :{color}[{email_status}]")
+
+                                # Resend Email Button
+                                if st.button("🔄 Resend Email", key=f"rs_{c['id']}"):
+                                    sent, msg = resend_candidate_email(c)
+                                    if sent: st.toast(f"Email resent to {c['email']}")
+                                    else: st.error(f"Failed: {msg}")
+                                    time.sleep(1)
+                                    st.rerun()
+
                             with c2:
                                 st.markdown(f"**{c.get('score', 0)}/100**")
-                                with st.popover("Summary"):
-                                    st.write(c.get('summary', 'No summary.'))
+                                
+                                # NEW: View Profile Popover
+                                with st.popover("📄 View Profile"):
+                                    render_candidate_details(c)
+                                    
                             with c3:
-                                # LOGIC: > 2 Years skips aptitude
                                 exp_years = c.get('years_experience', 0)
                                 if exp_years > 2:
                                     st.success("Senior Candidate")
@@ -606,74 +698,36 @@ def view_hr_dashboard():
                                         r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
                                         r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
                                         st.divider()
-                                        st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
                                         meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.google.com/...")
                                         
                                         if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
                                             final_link = meet_link if meet_link else generate_meeting_link()
                                             
-                                            # --- SEND EMAIL (Senior - First Round) ---
-                                            email_body = f"""
-Dear {c['name']},
-
-We are pleased to invite you to the First Round Interview for the {c['role']} position.
-
-Date: {r2d.strftime("%Y-%m-%d")}
-Time: {r2t.strftime("%H:%M")}
-Meeting Link: {final_link}
-
-Please join the link at the scheduled time.
-
-Best regards,
-HireAI Recruiting Team
-"""
-                                            email_sent, email_msg = email_service.send_email(c['email'], "First Round Interview - HireAI", email_body)
-                                            email_status = "Sent" if email_sent else "Failed"
-
                                             c['round2Date'] = r2d.strftime("%Y-%m-%d")
                                             c['round2Time'] = r2t.strftime("%H:%M")
                                             c['round2Link'] = final_link
                                             c['status'] = 'Interview Scheduled'
                                             c['interview_round'] = 1
-                                            c['email_status'] = email_status
-                                            c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
                                             
-                                            st.toast(f"Interview Scheduled for {c['name']} (Email: {email_status})")
+                                            # Send Email
+                                            resend_candidate_email(c)
+                                            st.toast(f"Interview Scheduled for {c['name']}")
                                             st.rerun()
                                 else:
-                                    # < 2 Years must take Aptitude
                                     with st.popover("Schedule Exam"):
                                         st.info("Junior: Aptitude Mandatory")
                                         d = st.date_input("Date", key=f"d_{c['id']}")
                                         t = st.time_input("Time", key=f"t_{c['id']}")
                                         if st.button("Confirm Schedule", key=f"btn_{c['id']}", type="primary"):
-                                            
-                                            # --- SEND EMAIL ---
-                                            email_body = f"""
-Dear {c['name']},
-
-You have been shortlisted for the Aptitude Assessment for the {c['role']} position.
-
-Date: {d.strftime("%Y-%m-%d")}
-Time: {t.strftime("%H:%M")}
-
-Please login to the Candidate Portal using your Access Key: {c['access_key']}
-
-Best regards,
-HireAI Recruiting Team
-"""
-                                            email_sent, email_msg = email_service.send_email(c['email'], "Aptitude Assessment Scheduled - HireAI", email_body)
-                                            email_status = "Sent" if email_sent else "Failed"
-
                                             c['aptitudeDate'] = d.strftime("%Y-%m-%d")
                                             c['aptitudeTime'] = t.strftime("%H:%M")
                                             c['status'] = 'Aptitude Scheduled'
-                                            c['email_status'] = email_status
-                                            c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
-
-                                            st.toast(f"Scheduled for {c['name']} (Email: {email_status})")
+                                            
+                                            # Send Email
+                                            resend_candidate_email(c)
+                                            st.toast(f"Scheduled for {c['name']}")
                                             st.rerun()
                                 
                                 if st.button("Archive", key=f"arc_{c['id']}"):
@@ -681,7 +735,7 @@ HireAI Recruiting Team
                                     database.save_candidate(c)
                                     st.rerun()
             
-            # 2. APTITUDE TAB
+            # --- APTITUDE TAB ---
             with subtab_2:
                 if not stage_aptitude:
                     st.info("No candidates in aptitude stage.")
@@ -699,16 +753,17 @@ HireAI Recruiting Team
                             with c1:
                                 st.markdown(f"**{c['name']}**")
                                 st.caption(c['role'])
-                                # EMAIL STATUS
+                                
                                 email_status = c.get('email_status', 'Unknown')
-                                if email_status == "Failed":
-                                    st.markdown(f"📧 Email: :red[Failed]")
-                                    if c.get('email_error'):
-                                        with st.popover("Error Log"):
-                                            st.error(c['email_error'])
-                                else:
-                                    color = "green" if email_status == "Sent" else "grey"
-                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
+                                color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
+                                st.markdown(f"📧 Email: :{color}[{email_status}]")
+                                
+                                if st.button("🔄 Resend Email", key=f"rs_apt_{c['id']}"):
+                                    sent, msg = resend_candidate_email(c)
+                                    if sent: st.toast(f"Email resent to {c['email']}")
+                                    else: st.error(f"Failed: {msg}")
+                                    time.sleep(1)
+                                    st.rerun()
 
                             with c2:
                                 if c['status'] == 'Aptitude Scheduled':
@@ -725,6 +780,10 @@ HireAI Recruiting Team
                                 else:
                                     st.markdown("--")
                             with c4:
+                                # View Profile
+                                with st.popover("📄 View Profile"):
+                                    render_candidate_details(c)
+
                                 if c['status'] == 'Aptitude Completed':
                                     if (c.get('aptitude_score') or 0) >= 50:
                                         with st.popover("Schedule Round 1"):
@@ -732,40 +791,21 @@ HireAI Recruiting Team
                                             r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
                                             r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
                                             st.divider()
-                                            st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
                                             meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.google.com/...")
                                             
                                             if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
                                                 final_link = meet_link if meet_link else generate_meeting_link()
                                                 
-                                                # --- SEND EMAIL (Junior - First Round) ---
-                                                email_body = f"""
-Dear {c['name']},
-
-Congratulations! You passed the aptitude test and have been selected for the First Round Interview.
-
-Date: {r2d.strftime("%Y-%m-%d")}
-Time: {r2t.strftime("%H:%M")}
-Meeting Link: {final_link}
-
-Please join the link at the scheduled time.
-
-Best regards,
-HireAI Recruiting Team
-"""
-                                                email_sent, email_msg = email_service.send_email(c['email'], "First Round Interview - HireAI", email_body)
-                                                email_status = "Sent" if email_sent else "Failed"
-
                                                 c['round2Date'] = r2d.strftime("%Y-%m-%d")
                                                 c['round2Time'] = r2t.strftime("%H:%M")
                                                 c['round2Link'] = final_link
                                                 c['status'] = 'Interview Scheduled'
                                                 c['interview_round'] = 1
-                                                c['email_status'] = email_status
-                                                c['email_error'] = email_msg if not email_sent else None
                                                 database.save_candidate(c)
                                                 
-                                                st.toast(f"Invite Sent! (Email: {email_status})", icon="📨")
+                                                # Send Email
+                                                resend_candidate_email(c)
+                                                st.toast(f"Invite Sent!", icon="📨")
                                                 time.sleep(1)
                                                 st.rerun()
                                     else:
@@ -778,7 +818,7 @@ HireAI Recruiting Team
                                     database.save_candidate(c)
                                     st.rerun()
 
-            # 3. INTERVIEW TAB
+            # --- INTERVIEW TAB ---
             with subtab_3:
                 if not stage_interview:
                     st.info("No candidates scheduled for interviews.")
@@ -795,16 +835,18 @@ HireAI Recruiting Team
                             with c1:
                                 st.markdown(f"**{c['name']}**")
                                 st.caption(c['role'])
-                                # EMAIL STATUS
+                                
                                 email_status = c.get('email_status', 'Unknown')
-                                if email_status == "Failed":
-                                    st.markdown(f"📧 Email: :red[Failed]")
-                                    if c.get('email_error'):
-                                        with st.popover("Error Log"):
-                                            st.error(c['email_error'])
-                                else:
-                                    color = "green" if email_status == "Sent" else "grey"
-                                    st.markdown(f"📧 Email: :{color}[{email_status}]")
+                                color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
+                                st.markdown(f"📧 Email: :{color}[{email_status}]")
+
+                                if st.button("🔄 Resend Email", key=f"rs_int_{c['id']}"):
+                                    sent, msg = resend_candidate_email(c)
+                                    if sent: st.toast(f"Email resent to {c['email']}")
+                                    else: st.error(f"Failed: {msg}")
+                                    time.sleep(1)
+                                    st.rerun()
+
                             with c2:
                                 round_num = c.get('interview_round', 1)
                                 st.markdown(f"📌 **Round {round_num}**")
@@ -814,7 +856,10 @@ HireAI Recruiting Team
                             with c3:
                                 st.link_button("Join Meeting", c['round2Link'])
                                 
-                                # Logic to schedule next round (Limit to 2 rounds for now)
+                                # View Profile
+                                with st.popover("📄 View Profile"):
+                                    render_candidate_details(c)
+
                                 current_round = c.get('interview_round', 1)
                                 if current_round == 1:
                                     with st.popover("Schedule Round 2"):
@@ -825,32 +870,15 @@ HireAI Recruiting Team
                                         if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
                                             new_link = generate_meeting_link()
                                             
-                                            email_body = f"""
-Dear {c['name']},
-
-We are pleased to invite you to the Second Round Interview for the {c['role']} position.
-
-Date: {r3d.strftime("%Y-%m-%d")}
-Time: {r3t.strftime("%H:%M")}
-Meeting Link: {new_link}
-
-Please join the link at the scheduled time.
-
-Best regards,
-HireAI Recruiting Team
-"""
-                                            email_sent, email_msg = email_service.send_email(c['email'], "Second Round Interview - HireAI", email_body)
-                                            email_status = "Sent" if email_sent else "Failed"
-
                                             c['round2Date'] = r3d.strftime("%Y-%m-%d")
                                             c['round2Time'] = r3t.strftime("%H:%M")
                                             c['round2Link'] = new_link
                                             c['interview_round'] = 2
-                                            c['email_status'] = email_status
-                                            c['email_error'] = email_msg if not email_sent else None
                                             database.save_candidate(c)
                                             
-                                            st.toast(f"Round 2 Scheduled! (Email: {email_status})")
+                                            # Send Email
+                                            resend_candidate_email(c)
+                                            st.toast(f"Round 2 Scheduled!")
                                             time.sleep(1)
                                             st.rerun()
 
@@ -864,14 +892,12 @@ HireAI Recruiting Team
         st.subheader("Manage Job Descriptions")
         st.markdown("Add roles with specific skills and experience requirements. The AI will strictly use these for screening.")
         
-        # Predefined common skills list
         common_skills = [
             "Python", "Java", ".NET", ".NET Core", "C#", "JavaScript", "TypeScript", "React", "Angular", "Vue.js",
             "Node.js", "Django", "Flask", "FastAPI", "Spring Boot", "SQL", "PostgreSQL", "MongoDB", "AWS", "Azure",
             "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "Machine Learning", "Data Analysis"
         ]
 
-        # Use session state for "Create Job" inputs to allow clearing
         if 'new_job_title' not in st.session_state: st.session_state.new_job_title = ""
         if 'new_job_exp' not in st.session_state: st.session_state.new_job_exp = 2
         if 'new_job_skills' not in st.session_state: st.session_state.new_job_skills = []
@@ -898,7 +924,6 @@ HireAI Recruiting Team
                     )
                     st.success(f"Job '{st.session_state.new_job_title}' created successfully!")
                     
-                    # Clear inputs
                     del st.session_state.new_job_title
                     del st.session_state.new_job_exp
                     del st.session_state.new_job_skills
@@ -920,11 +945,9 @@ HireAI Recruiting Team
                     col_j1, col_j2 = st.columns([5, 1])
                     with col_j1:
                         st.markdown(f"**{job['title']}**")
-                        # Show badges for requirements
                         st.markdown(f"**Experience:** {job.get('min_experience', 0)}+ Years")
                         if job.get('skills'):
                             skills_list = job['skills'].split(',')
-                            # Display skills as tags
                             tags_html = " ".join([f"<span style='background-color:#e0f2fe; color:#0284c7; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:600; margin-right:4px;'>{s}</span>" for s in skills_list])
                             st.markdown(tags_html, unsafe_allow_html=True)
                         
@@ -932,16 +955,12 @@ HireAI Recruiting Team
                             st.write(job['description'])
                             
                     with col_j2:
-                        # --- EDIT JOB FUNCTIONALITY ---
                         with st.popover("Edit"):
                             st.markdown("### Edit Job")
-                            # Pre-fill with existing values
                             edit_title = st.text_input("Title", value=job['title'], key=f"edit_t_{job['id']}")
                             edit_exp = st.number_input("Min Exp", value=job.get('min_experience', 0), min_value=0, key=f"edit_e_{job['id']}")
                             
-                            # Handle skills mapping for multiselect
                             existing_skills = job.get('skills', '').split(',') if job.get('skills') else []
-                            # Ensure existing skills are in options to avoid errors, or filter valid ones
                             valid_default_skills = [s for s in existing_skills if s in common_skills]
                             
                             edit_skills = st.multiselect(
@@ -958,16 +977,12 @@ HireAI Recruiting Team
                                 st.success("Job updated!")
                                 st.rerun()
 
-                        # DELETE BUTTON
                         if st.button("Delete", key=f"del_job_{job['id']}"):
                             database.delete_job(job['id'])
                             st.rerun()
 
-    # --- TEAM MANAGEMENT TAB ---
     with tab_team:
         st.subheader("Manage HR Team")
-        
-        # Check permissions
         is_super_admin = st.session_state.hr_username == "admin"
         
         if is_super_admin:
@@ -975,7 +990,6 @@ HireAI Recruiting Team
             with st.container(border=True):
                 st.markdown("### Add New Recruiter")
                 
-                # Use session state for clearing inputs
                 if 'new_u_input' not in st.session_state: st.session_state.new_u_input = ""
                 if 'new_e_input' not in st.session_state: st.session_state.new_e_input = ""
                 if 'new_p_input' not in st.session_state: st.session_state.new_p_input = ""
@@ -989,7 +1003,6 @@ HireAI Recruiting Team
                     if st.form_submit_button("Create User & Send Email", type="primary"):
                         if st.session_state.new_u_input and st.session_state.new_p_input and st.session_state.new_e_input:
                             if database.create_user(st.session_state.new_u_input, st.session_state.new_p_input, st.session_state.new_e_input):
-                                # --- SEND EMAIL ---
                                 email_body = f"""
 Hello {st.session_state.new_u_input},
 
@@ -1011,7 +1024,6 @@ HireAI Admin
                                 else:
                                     st.error(f"Failed to send email: {msg}")
                                 
-                                # Clear inputs
                                 del st.session_state.new_u_input
                                 del st.session_state.new_e_input
                                 del st.session_state.new_p_input
@@ -1028,7 +1040,6 @@ HireAI Admin
         st.markdown("### Existing Users")
         
         users = database.get_users()
-        # Header
         c1, c2, c3 = st.columns([2, 3, 2])
         c1.markdown("**Username**")
         c2.markdown("**Email**")
@@ -1041,7 +1052,6 @@ HireAI Admin
                 c2.caption(u.get('email', 'No Email'))
                 
                 with c3:
-                    # ONLY ADMIN CAN EDIT/DELETE
                     if is_super_admin:
                         col_a, col_b = st.columns(2)
                         with col_a:
@@ -1065,17 +1075,13 @@ HireAI Admin
                     else:
                         st.caption("View Only")
 
-    # --- ARCHIVED TAB ---
     with tab_archived:
         if not archived_candidates:
             st.info("No archived candidates.")
         else:
             with st.form("archive_management"):
                 st.write("Select candidates to manage.")
-                
                 selected_for_delete = []
-                
-                # Header
                 col_h1, col_h2, col_h3 = st.columns([0.5, 4, 1.5])
                 col_h1.markdown("**Select**")
                 col_h2.markdown("**Candidate**")
@@ -1123,7 +1129,6 @@ def view_interview_room():
             with st.container(border=True):
                 key_input = st.text_input("Enter your 8-digit Access Key", placeholder="XXXX-0000")
                 if st.button("Login to Portal", type="primary"):
-                    # Only check non-archived candidates for login
                     match = next((c for c in candidates if c.get('access_key') == key_input and not c.get('archived')), None)
                     if match:
                         st.session_state.active_user = match
@@ -1133,7 +1138,6 @@ def view_interview_room():
     else:
         user = st.session_state.active_user
         
-        # --- VIEW 1: ROUND 2 INTERVIEW ---
         if user.get('status') == 'Interview Scheduled':
             round_label = "First Round" if user.get('interview_round', 1) == 1 else "Second Round"
             st.title(f"{round_label} Interview: {user['name']}")
@@ -1144,7 +1148,6 @@ def view_interview_room():
                 st.caption("HR has been notified of your readiness.")
             return
 
-        # --- VIEW 2: APTITUDE EXAM GATING ---
         st.title(f"Aptitude Portal: {user['name']}")
         
         if not user.get('aptitudeDate'):
@@ -1168,15 +1171,11 @@ def view_interview_room():
                     st.rerun()
             return
 
-        # --- VIEW 3: COMPLETED STATE ---
         if user.get('aptitude_score') is not None:
              with st.container(border=True):
                  st.header("Exam Results")
-                 
-                 # Score and Pass/Fail Status
                  score = user['aptitude_score']
                  is_passed = score >= 50
-                 
                  col1, col2 = st.columns(2)
                  with col1:
                      st.metric("Final Score", f"{score}%")
@@ -1195,8 +1194,6 @@ def view_interview_room():
                  if details:
                      questions_data = details.get('questions', [])
                      answers_data = details.get('answers', {})
-                     
-                     # Convert keys to int if they are strings (JSON serialization)
                      answers_data = {int(k): v for k, v in answers_data.items()}
 
                      for i, q in enumerate(questions_data):
@@ -1206,18 +1203,12 @@ def view_interview_room():
                          
                          with st.expander(f"Q{i+1}: {q['question']} - {'✅' if is_correct else '❌'}", expanded=not is_correct):
                              st.write(f"**Category:** {q['category']}")
-                             
                              for opt in q['options']:
                                  prefix = "⚪ "
-                                 
-                                 if opt == correct_option:
-                                     prefix = "✅ "
-                                 elif opt == user_selected and not is_correct:
-                                     prefix = "❌ "
-                                 elif opt == user_selected and is_correct:
-                                     prefix = "✅ "
+                                 if opt == correct_option: prefix = "✅ "
+                                 elif opt == user_selected and not is_correct: prefix = "❌ "
+                                 elif opt == user_selected and is_correct: prefix = "✅ "
                                      
-                                 # Streamlit markdown specific coloring
                                  if opt == correct_option:
                                      st.markdown(f":green[**{prefix}{opt}**] (Correct Answer)")
                                  elif opt == user_selected:
@@ -1228,7 +1219,6 @@ def view_interview_room():
                      st.info("Detailed results not available for this session.")
              return
 
-        # --- VIEW 4: EXAM INTERFACE ---
         if 'aptitude_questions' not in st.session_state:
             with st.container(border=True):
                 st.subheader("Assessment Instructions")
@@ -1259,10 +1249,9 @@ def view_interview_room():
                 
                 if st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary"):
                     score = 0
-                    # Capture detailed results
                     details = {
                         "questions": questions,
-                        "answers": user_answers # Map of index -> selected option string
+                        "answers": user_answers 
                     }
                     
                     for i, q in enumerate(questions):
@@ -1276,26 +1265,20 @@ def view_interview_room():
                     
                     final_percentage = int((score / len(questions)) * 100)
                     
-                    # --- SEND EMAIL (PASSED/FAILED) ---
-                    if final_percentage >= 50:
-                        subj = "Aptitude Test Passed - HireAI"
-                        body = f"Dear {user['name']},\n\nCongratulations! You have passed the aptitude assessment with a score of {final_percentage}%.\n\nOur team will review your profile and schedule the final interview shortly.\n\nBest regards,\nHireAI Recruiting Team"
-                    else:
-                        subj = "Application Update - HireAI"
-                        body = f"Dear {user['name']},\n\nThank you for completing the aptitude assessment.\n\nUnfortunately, your score of {final_percentage}% did not meet the required threshold for this role.\n\nWe encourage you to apply again after 6 months.\n\nBest regards,\nHireAI Recruiting Team"
-
-                    email_sent, email_msg = email_service.send_email(user['email'], subj, body)
-                    email_status = "Sent" if email_sent else "Failed"
-
-                    # Update Candidate in DB
+                    # Update Candidate in DB FIRST so status is correct for resend function
                     user['aptitude_score'] = final_percentage
-                    user['aptitude_details'] = details # Save details
+                    user['aptitude_details'] = details
                     user['status'] = 'Aptitude Completed'
-                    user['email_status'] = email_status
+                    database.save_candidate(user)
+                    
+                    # Resend Email (Passed/Failed) using helper
+                    email_sent, email_msg = resend_candidate_email(user)
+
+                    user['email_status'] = "Sent" if email_sent else "Failed"
                     user['email_error'] = email_msg if not email_sent else None
                     database.save_candidate(user)
-                    st.session_state.active_user = user
                     
+                    st.session_state.active_user = user
                     st.balloons()
                     st.rerun()
 
