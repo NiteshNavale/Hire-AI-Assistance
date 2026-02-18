@@ -238,6 +238,24 @@ Welcome to the family!
 Best regards,
 HireAI HR Team
 """
+    elif status == 'Rejected':
+        round_num = c.get('interview_round', 1)
+        round_name = "First Round" if round_num == 1 else "Second Round"
+        subject = "Update on your Application - HireAI"
+        body = f"""
+Dear {c['name']},
+
+Thank you for giving us the opportunity to get to know you during the {round_name} of interviews for the {c['role']} position.
+
+We appreciate the time and effort you put into the process. However, after careful consideration, we have decided to move forward with other candidates who more closely match our current requirements for this specific role.
+
+We encourage you to apply again after 6 months as our needs and roles continue to evolve.
+
+We wish you the very best in your future endeavors.
+
+Best regards,
+HireAI Recruiting Team
+"""
     else:
         return False, "No email template found for current status."
 
@@ -1082,7 +1100,31 @@ def view_hr_dashboard():
                                             time.sleep(2)
                                             st.rerun()
 
-                                    if st.button("Archive", key=f"arc_{c['id']}_int"):
+                                    st.divider()
+                                    # --- Rejection Action (Available in both rounds) ---
+                                    with st.popover("❌ Reject Candidate"):
+                                        st.markdown("### Rejection Details")
+                                        st.info("This action is irreversible. The candidate will be notified and archived.")
+                                        
+                                        rej_reason = st.text_area("Internal Rejection Reason", placeholder="e.g., Lack of depth in System Design...", key=f"rej_r_{c['id']}")
+                                        
+                                        if st.button("Confirm Rejection", key=f"btn_rej_{c['id']}", type="primary"):
+                                            if rej_reason:
+                                                c['status'] = 'Rejected'
+                                                c['rejection_reason'] = rej_reason
+                                                c['archived'] = True
+                                                database.save_candidate(c)
+                                                
+                                                # Send Rejection Email (Generic, no reason included)
+                                                resend_candidate_email(c)
+                                                st.toast("Candidate Rejected & Archived")
+                                                time.sleep(1)
+                                                st.rerun()
+                                            else:
+                                                st.error("Please provide a reason for internal reference.")
+
+                                    # Simple Archive (No email trigger, just hide)
+                                    if st.button("Archive (No Email)", key=f"arc_{c['id']}_int"):
                                         c['archived'] = True
                                         database.save_candidate(c)
                                         st.rerun()
@@ -1361,9 +1403,16 @@ HireAI Admin
                         with c2:
                             st.markdown(f"**{c['name']}**")
                             st.caption(f"{c['role']}")
+                            
+                            # SHOW REJECTION REASON IF EXISTS (Internal Only)
+                            if c.get('rejection_reason'):
+                                st.error(f"🛑 Rejection Reason: {c['rejection_reason']}")
+
                         with c3:
                             st.caption(f"Score: {c.get('score', 0)}")
-                            st.caption(f"{c['status']}")
+                            status = c['status']
+                            color = "red" if status == "Rejected" else "grey"
+                            st.markdown(f":{color}[{status}]")
                 
                 st.divider()
                 col_actions_1, col_actions_2 = st.columns([1, 1])
