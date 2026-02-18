@@ -13,7 +13,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv  # Import dotenv
 import database  # Import the shared database module
-import email_service # Import email service
+import email_service # Import email service 
 
 # --- LOAD ENVIRONMENT VARIABLES ---
 # This ensures it works on local machines, VPS, and hosting panels using .env files
