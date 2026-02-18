@@ -15,9 +15,9 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose,
   const [meetingLink, setMeetingLink] = useState('');
 
   const generateLink = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
-    const part = (len: number) => Array.from({length: len}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const link = `https://meet.google.com/${part(3)}-${part(4)}-${part(3)}`;
+    // Generates a working video meeting link using Jitsi
+    const uniqueId = Math.random().toString(36).substring(7);
+    const link = `https://meet.jit.si/HireAI-Interview-${uniqueId}`;
     setMeetingLink(link);
   };
 
@@ -61,13 +61,13 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ candidate, type, onClose,
                     type="text"
                     value={meetingLink}
                     onChange={e => setMeetingLink(e.target.value)}
-                    placeholder="https://meet.google.com/..."
+                    placeholder="https://meet.jit.si/..."
                     className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                   />
                   <button 
                     onClick={generateLink}
                     className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors font-bold"
-                    title="Generate Google Meet Link"
+                    title="Generate Secure Video Link"
                   >
                     ⚡
                   </button>

@@ -45,7 +45,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         });
         setToast({ msg: `Aptitude Exam scheduled for ${date} at ${time}. Email sent.`, type: 'success' });
     } else {
-        const finalLink = link || `https://meet.google.com/gen-${Math.random().toString(36).substr(2, 4)}`;
+        const finalLink = link || `https://meet.jit.si/HireAI-Interview-${Math.random().toString(36).substr(2, 6)}`;
         onUpdateCandidate(id, { 
             status: 'Interview Scheduled', 
             round2Date: date, 

@@ -104,7 +104,10 @@ def generate_key():
     return f"{''.join(random.choices(string.ascii_uppercase, k=4))}-{''.join(random.choices(string.digits, k=4))}"
 
 def generate_meeting_link():
-    return f"https://meet.google.com/{''.join(random.choices(string.ascii_lowercase, k=3))}-{''.join(random.choices(string.ascii_lowercase, k=4))}-{''.join(random.choices(string.ascii_lowercase, k=3))}"
+    # Using Jitsi Meet ensures links are valid and working immediately without OAuth
+    # Format: https://meet.jit.si/HireAI-{random_uuid}
+    unique_id = uuid.uuid4().hex[:12]
+    return f"https://meet.jit.si/HireAI-Interview-{unique_id}"
 
 def set_generated_link_callback(key):
     """Callback to update session state with a new meeting link before render."""
@@ -943,7 +946,7 @@ def view_hr_dashboard():
                                             st.button(
                                                 "Auto-Gen", 
                                                 key=f"gen_{c['id']}", 
-                                                help="Generate new Google Meet link",
+                                                help="Generate new video meeting link",
                                                 on_click=set_generated_link_callback,
                                                 args=(f"ad_l_{c['id']}",)
                                             )
