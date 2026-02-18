@@ -775,7 +775,12 @@ def view_hr_dashboard():
                                             r2d = st.date_input("Interview Date", key=f"r2d_s_{c['id']}")
                                             r2t = st.time_input("Start Time", key=f"r2t_s_{c['id']}")
                                             st.divider()
-                                            meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.google.com/...")
+                                            
+                                            col_l1, col_l2 = st.columns([3, 1.5])
+                                            with col_l1:
+                                                meet_link = st.text_input("Meeting Link", key=f"lnk_s_{c['id']}", placeholder="https://meet.jit.si/...")
+                                            with col_l2:
+                                                st.button("⚡ Generate", key=f"btn_gen_s_{c['id']}", on_click=set_generated_link_callback, args=(f"lnk_s_{c['id']}",))
                                             
                                             if st.button("Confirm Interview", key=f"btn_int_s_{c['id']}", type="primary"):
                                                 final_link = meet_link if meet_link else generate_meeting_link()
@@ -883,8 +888,13 @@ def view_hr_dashboard():
                                                 r2d = st.date_input("Interview Date", key=f"r2d_{c['id']}")
                                                 r2t = st.time_input("Start Time", key=f"r2t_{c['id']}")
                                                 st.divider()
-                                                meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.google.com/...")
                                                 
+                                                col_l1, col_l2 = st.columns([3, 1.5])
+                                                with col_l1:
+                                                    meet_link = st.text_input("Meeting Link", key=f"lnk_a_{c['id']}", placeholder="https://meet.jit.si/...")
+                                                with col_l2:
+                                                    st.button("⚡ Generate", key=f"btn_gen_a_{c['id']}", on_click=set_generated_link_callback, args=(f"lnk_a_{c['id']}",))
+
                                                 if st.button("Send Invite", key=f"inv_{c['id']}", type="primary"):
                                                     final_link = meet_link if meet_link else generate_meeting_link()
                                                     
@@ -993,12 +1003,12 @@ def view_hr_dashboard():
                                         admin_date = st.date_input("Date", value=datetime.strptime(c['round2Date'], "%Y-%m-%d"), key=f"ad_d_{c['id']}")
                                         admin_time = st.time_input("Time", value=datetime.strptime(c['round2Time'], "%H:%M"), key=f"ad_t_{c['id']}")
                                         
-                                        col_l1, col_l2 = st.columns([3, 1])
+                                        col_l1, col_l2 = st.columns([3, 1.5])
                                         with col_l1:
                                             admin_link = st.text_input("Meeting Link", value=c.get('round2Link', ''), key=f"ad_l_{c['id']}")
                                         with col_l2:
                                             st.button(
-                                                "Auto-Gen", 
+                                                "⚡ Generate", 
                                                 key=f"gen_{c['id']}", 
                                                 help="Generate new video meeting link",
                                                 on_click=set_generated_link_callback,
@@ -1031,10 +1041,13 @@ def view_hr_dashboard():
                                             r3d = st.date_input("Date", key=f"r3d_{c['id']}")
                                             r3t = st.time_input("Time", key=f"r3t_{c['id']}")
                                             
-                                            # Added Input field for Meeting Link
                                             st.divider()
-                                            st.markdown("create a link here: [Google Meet](https://meet.google.com/new)")
-                                            meet_link = st.text_input("Meeting Link", key=f"lnk_r2_{c['id']}", placeholder="https://meet.google.com/...")
+                                            
+                                            col_l1, col_l2 = st.columns([3, 1.5])
+                                            with col_l1:
+                                                meet_link = st.text_input("Meeting Link", key=f"lnk_r2_{c['id']}", placeholder="https://meet.jit.si/...")
+                                            with col_l2:
+                                                st.button("⚡ Generate", key=f"btn_gen_r2_{c['id']}", on_click=set_generated_link_callback, args=(f"lnk_r2_{c['id']}",))
                                             
                                             if st.button("Confirm Round 2", key=f"btn_r3_{c['id']}", type="primary"):
                                                 # Use input link if provided, otherwise generate random
