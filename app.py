@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 import random
 import string
 import uuid
-import importlib
+import io
+from pypdf import PdfReader
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv  # Import dotenv
@@ -142,6 +143,25 @@ def save_uploaded_doc(uploaded_file, candidate_id, doc_type):
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     return file_path
+
+def extract_text_from_file(uploaded_file):
+    """Robustly extracts text from PDF or TXT files."""
+    try:
+        file_type = uploaded_file.type
+        
+        # Handle PDF
+        if file_type == "application/pdf":
+            reader = PdfReader(uploaded_file)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+            return text
+        
+        # Handle Text/Plain
+        else:
+            return uploaded_file.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        return f"Error extracting text: {str(e)}"
 
 def resend_candidate_email(c):
     """
@@ -279,89 +299,49 @@ HireAI Recruiting Team
     return email_sent, email_msg
 
 # --- AI LOGIC ---
-def verify_candidate_identity(resume_text, input_name):
-    """
-    Verifies if the name entered by the user matches the name found in the resume.
-    """
-    prompt = f"""
-    You are an identity verification system.
-    
-    1. Analyze the top section of the provided RESUME TEXT to extract the candidate's name.
-    2. Compare the extracted name with the USER INPUT NAME.
-    3. Determine if they represent the same person.
-       - Allow for case-insensitive matches.
-       - Allow for minor variations (e.g., "John Doe" matches "John A. Doe").
-       - Allow for common nicknames if obvious (e.g. "Dave" for "David").
-       - If the names are completely different, return false.
-    
-    USER INPUT NAME: "{input_name}"
-    
-    RESUME TEXT (First 2000 chars):
-    "{resume_text[:2000]}"
-    
-    Return a JSON object:
-    {{
-        "match": boolean,
-        "name_on_resume": "string",
-        "reason": "string"
-    }}
-    """
-    
-    try:
-        response = client.models.generate_content(
-            model='gemini-3-flash-preview',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type='application/json',
-                response_schema={
-                    'type': 'OBJECT',
-                    'properties': {
-                        'match': {'type': 'BOOLEAN'},
-                        'name_on_resume': {'type': 'STRING'},
-                        'reason': {'type': 'STRING'}
-                    },
-                    'required': ['match', 'name_on_resume', 'reason']
-                }
-            )
-        )
-        return json.loads(response.text)
-    except Exception as e:
-        print(f"Identity check failed: {e}")
-        # Fail safe: if AI fails, we might want to warn or just pass. 
-        # Here we return False to be strict, or True to be lenient. 
-        # Let's return error so user knows.
-        raise e
-
 def screen_resume_ai(text, role_title, job_description, skills_required, min_experience):
     """
     Screens resume with temperature=0.0 and a fixed seed for deterministic results.
     """
     
-    seed_str = f"{text[:100]}{job_description[:100]}{len(text)}"
+    # Generate a deterministic seed based on inputs to ensure consistent scoring for same resume
+    seed_str = f"{text[:200]}{job_description[:50]}{len(text)}"
     seed = sum(ord(char) for char in seed_str)
 
     prompt = f"""
-    You are a strict technical recruiter. 
-    Evaluate the following Resume against the Job Requirements.
-    
-    JOB TITLE: {role_title}
-    
-    MANDATORY REQUIREMENTS:
-    1. Minimum Experience Required: {min_experience} years.
-    2. Mandatory Skills: {skills_required}
-    
+    You are an expert Application Tracking System (ATS) and Technical Recruiter.
+    Your task is to objectively evaluate the Candidate Resume against the Job Description.
+
+    --- JOB DETAILS ---
+    ROLE: {role_title}
+    MINIMUM EXPERIENCE: {min_experience} Years
+    MANDATORY SKILLS: {skills_required}
     JOB DESCRIPTION:
     {job_description}
-    
-    CANDIDATE RESUME:
+
+    --- CANDIDATE RESUME ---
     {text}
+
+    --- EVALUATION CRITERIA ---
+    1. EXPERIENCE CALCULATION: 
+       - Extract start and end dates for every role in the resume. 
+       - Calculate total professional experience in years. 
+       - Exclude internships unless they are highly relevant to a junior role.
+       - Compare strictly against the Minimum Experience ({min_experience} years).
+       - If total experience < {min_experience}, the 'overallScore' MUST be < 40.
     
-    EVALUATION INSTRUCTIONS:
-    1. Extract the total years of relevant experience from the resume as an integer.
-    2. Check if the candidate matches the Minimum Experience. If they have less than {min_experience} years, the Score MUST be below 40.
-    3. Check if the candidate has the Mandatory Skills ({skills_required}). If they miss key skills, deduct points significantly.
-    4. Score from 0-100 based on strict evidence in the text.
-    5. Provide a summary explaining the score, specifically mentioning if they met the experience and skill requirements.
+    2. SKILL MATCHING:
+       - Search for the Mandatory Skills in the resume text.
+       - A missing mandatory skill should significantly reduce the 'technicalMatch' score.
+    
+    3. SCORING (0-100):
+       - 90-100: Perfect match, exceeds experience, has all skills.
+       - 70-89: Good match, meets experience, has most skills.
+       - 40-69: Average match, meets some criteria but lacks specific depth.
+       - 0-39: Does not meet minimum experience or missing critical skills.
+
+    4. OUTPUT FORMAT:
+       Return a JSON object with integer scores and a text summary.
     """
     
     max_retries = 3
@@ -379,10 +359,10 @@ def screen_resume_ai(text, role_title, job_description, skills_required, min_exp
                     response_schema={
                         'type': 'OBJECT',
                         'properties': {
-                            'overallScore': {'type': 'INTEGER'},
-                            'years_experience': {'type': 'INTEGER', 'description': 'Total relevant years of experience extracted from resume'},
-                            'summary': {'type': 'STRING'},
-                            'technicalMatch': {'type': 'INTEGER'}
+                            'overallScore': {'type': 'INTEGER', 'description': 'Final suitability score (0-100)'},
+                            'years_experience': {'type': 'INTEGER', 'description': 'Calculated total years of professional experience'},
+                            'summary': {'type': 'STRING', 'description': 'Brief justification of the score'},
+                            'technicalMatch': {'type': 'INTEGER', 'description': 'Score based on skills match (0-100)'}
                         },
                         'required': ['overallScore', 'years_experience', 'summary', 'technicalMatch']
                     }
@@ -610,19 +590,13 @@ def view_candidate_portal():
                 if name and email and resume:
                     with st.spinner("AI is rigorously analyzing your profile against specific job requirements..."):
                         try:
-                            resume_text = resume.read().decode("utf-8", errors="ignore")
+                            # Use helper function to extract text robustly from PDF or TXT
+                            resume_text = extract_text_from_file(resume)
                             
-                            # --- 1. IDENTITY VERIFICATION ---
-                            st.caption("Verifying identity...")
-                            identity_check = verify_candidate_identity(resume_text, name)
+                            if len(resume_text.strip()) < 50:
+                                st.error("The uploaded resume seems empty or unreadable. Please upload a valid PDF or Text file.")
+                                return
                             
-                            if not identity_check['match']:
-                                st.error(f"Identity Mismatch Error: {identity_check.get('reason', 'Name in resume does not match entered name.')}")
-                                st.warning(f"Resume Name Detected: {identity_check.get('name_on_resume', 'Unknown')}")
-                                return # STOP EXECUTION HERE
-                            
-                            # --- 2. RESUME SCREENING ---
-                            st.caption("Identity Verified. Analyzing qualifications...")
                             analysis = screen_resume_ai(
                                 resume_text, 
                                 selected_role_title, 
