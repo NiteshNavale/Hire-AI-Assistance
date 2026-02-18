@@ -13,7 +13,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv  # Import dotenv
 import database  # Import the shared database module
-import email_service # Import email service 
+import email_service # Import email service
 
 # --- LOAD ENVIRONMENT VARIABLES ---
 # This ensures it works on local machines, VPS, and hosting panels using .env files
@@ -185,6 +185,48 @@ Please join the link at the scheduled time.
 
 Best regards,
 HireAI Recruiting Team
+"""
+    elif status == 'Selected':
+        subject = "Congratulations! You have been Selected - HireAI"
+        body = f"""
+Dear {c['name']},
+
+Congratulations! We are pleased to inform you that you have cleared the final interview round for the position of {c['role']}.
+
+We are currently preparing your formal offer. A confirmation letter will be shared with you shortly.
+
+Action Required:
+Please submit the following documents within the next 4 days for verification:
+1. Valid Government ID Proof (Passport/Aadhaar/Driver's License)
+2. Current Address Proof
+3. Educational Certificates (Degree/Mark sheets)
+4. Experience Letter / Relieving Letter (if applicable)
+
+Please reply to this email with the attached documents.
+
+We look forward to welcoming you to the team!
+
+Best regards,
+HireAI HR Team
+"""
+    elif status == 'Joining Scheduled':
+        subject = "Official Joining Letter - HireAI"
+        body = f"""
+Dear {c['name']},
+
+We are delighted to formally offer you the position of {c['role']} at HireAI!
+
+We have verified your documents and everything looks in order.
+
+**Joining Date:** {c.get('joining_date', 'To Be Discussed')}
+
+Please arrive at our office by 9:30 AM on your joining date for orientation.
+We are excited to have you onboard.
+
+Welcome to the family!
+
+Best regards,
+HireAI HR Team
 """
     else:
         return False, "No email template found for current status."
@@ -653,11 +695,13 @@ def view_hr_dashboard():
             stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
             stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
             stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
+            stage_selected = [c for c in active_candidates if c['status'] in ['Selected', 'Joining Scheduled']]
             
-            subtab_1, subtab_2, subtab_3 = st.tabs([
+            subtab_1, subtab_2, subtab_3, subtab_4 = st.tabs([
                 f"📋 Screening ({len(stage_screening)})",
                 f"📝 Aptitude ({len(stage_aptitude)})",
-                f"🤝 Interviews ({len(stage_interview)})"
+                f"🤝 Interviews ({len(stage_interview)})",
+                f"🎉 Offers & Joining ({len(stage_selected)})"
             ])
             
             # --- SCREENING TAB ---
@@ -1000,11 +1044,90 @@ def view_hr_dashboard():
                                                 st.toast(f"Round 2 Scheduled!")
                                                 time.sleep(1)
                                                 st.rerun()
+                                    
+                                    # --- Selection Action for Round 2 ---
+                                    if current_round == 2:
+                                        st.markdown("**Selection Decision**")
+                                        if st.button("✅ Select Candidate", key=f"sel_{c['id']}", type="primary"):
+                                            c['status'] = 'Selected'
+                                            database.save_candidate(c)
+                                            
+                                            # Send Selection Email (Request Docs)
+                                            resend_candidate_email(c)
+                                            st.balloons()
+                                            st.toast(f"Candidate Selected! Document Request Sent.")
+                                            time.sleep(2)
+                                            st.rerun()
 
                                     if st.button("Archive", key=f"arc_{c['id']}_int"):
                                         c['archived'] = True
                                         database.save_candidate(c)
                                         st.rerun()
+
+            # --- OFFERS & JOINING TAB ---
+            with subtab_4:
+                if not stage_selected:
+                    st.info("No selected candidates waiting for joining.")
+                else:
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([3, 3, 2])
+                        c1.markdown("**Candidate**")
+                        c2.markdown("**Status / Docs**")
+                        c3.markdown("**Action**")
+                    
+                    for c in stage_selected:
+                         with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 3, 2])
+                            with c1:
+                                st.markdown(f"**{c['name']}**")
+                                st.caption(c['role'])
+                                
+                                email_status = c.get('email_status', 'Unknown')
+                                color = "green" if email_status == "Sent" else "red" if email_status == "Failed" else "grey"
+                                st.markdown(f"📧 Email: :{color}[{email_status}]")
+                            
+                            with c2:
+                                if c['status'] == 'Selected':
+                                    st.warning("Waiting for Documents")
+                                    st.caption("Requested: ID, Address, Edu, Exp")
+                                elif c['status'] == 'Joining Scheduled':
+                                    st.success(f"Joining: {c.get('joining_date')}")
+                                    st.caption("Joining Letter Sent")
+                            
+                            with c3:
+                                with st.popover("📄 View Profile"):
+                                    render_candidate_details(c)
+                                
+                                # Ownership Check
+                                assigned = c.get('recruiter')
+                                is_owner = not assigned or assigned == current_hr or is_super_admin
+                                
+                                if is_owner:
+                                    if c['status'] == 'Selected':
+                                        with st.popover("Send Joining Letter"):
+                                            st.markdown("### 📅 Finalize Joining")
+                                            j_date = st.date_input("Joining Date", key=f"jd_{c['id']}")
+                                            
+                                            st.info("This will trigger the official Joining Letter email.")
+                                            
+                                            if st.button("Confirm & Send Letter", key=f"btn_join_{c['id']}", type="primary"):
+                                                c['joining_date'] = j_date.strftime("%Y-%m-%d")
+                                                c['status'] = 'Joining Scheduled'
+                                                database.save_candidate(c)
+                                                
+                                                # Send Joining Email
+                                                resend_candidate_email(c)
+                                                st.toast(f"Joining Letter Sent!")
+                                                time.sleep(1)
+                                                st.rerun()
+                                    elif c['status'] == 'Joining Scheduled':
+                                        if st.button("🔄 Resend Letter", key=f"rs_join_{c['id']}"):
+                                            sent, msg = resend_candidate_email(c)
+                                            if sent: st.toast("Joining Letter Resent")
+                                            else: st.error(f"Failed: {msg}")
+
+                                else:
+                                    st.caption(f"Locked by {assigned}")
 
     # --- JOB MANAGEMENT TAB ---
     with tab_jobs:
