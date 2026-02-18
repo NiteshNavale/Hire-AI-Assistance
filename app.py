@@ -279,6 +279,59 @@ HireAI Recruiting Team
     return email_sent, email_msg
 
 # --- AI LOGIC ---
+def verify_candidate_identity(resume_text, input_name):
+    """
+    Verifies if the name entered by the user matches the name found in the resume.
+    """
+    prompt = f"""
+    You are an identity verification system.
+    
+    1. Analyze the top section of the provided RESUME TEXT to extract the candidate's name.
+    2. Compare the extracted name with the USER INPUT NAME.
+    3. Determine if they represent the same person.
+       - Allow for case-insensitive matches.
+       - Allow for minor variations (e.g., "John Doe" matches "John A. Doe").
+       - Allow for common nicknames if obvious (e.g. "Dave" for "David").
+       - If the names are completely different, return false.
+    
+    USER INPUT NAME: "{input_name}"
+    
+    RESUME TEXT (First 2000 chars):
+    "{resume_text[:2000]}"
+    
+    Return a JSON object:
+    {{
+        "match": boolean,
+        "name_on_resume": "string",
+        "reason": "string"
+    }}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type='application/json',
+                response_schema={
+                    'type': 'OBJECT',
+                    'properties': {
+                        'match': {'type': 'BOOLEAN'},
+                        'name_on_resume': {'type': 'STRING'},
+                        'reason': {'type': 'STRING'}
+                    },
+                    'required': ['match', 'name_on_resume', 'reason']
+                }
+            )
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Identity check failed: {e}")
+        # Fail safe: if AI fails, we might want to warn or just pass. 
+        # Here we return False to be strict, or True to be lenient. 
+        # Let's return error so user knows.
+        raise e
+
 def screen_resume_ai(text, role_title, job_description, skills_required, min_experience):
     """
     Screens resume with temperature=0.0 and a fixed seed for deterministic results.
@@ -559,6 +612,17 @@ def view_candidate_portal():
                         try:
                             resume_text = resume.read().decode("utf-8", errors="ignore")
                             
+                            # --- 1. IDENTITY VERIFICATION ---
+                            st.caption("Verifying identity...")
+                            identity_check = verify_candidate_identity(resume_text, name)
+                            
+                            if not identity_check['match']:
+                                st.error(f"Identity Mismatch Error: {identity_check.get('reason', 'Name in resume does not match entered name.')}")
+                                st.warning(f"Resume Name Detected: {identity_check.get('name_on_resume', 'Unknown')}")
+                                return # STOP EXECUTION HERE
+                            
+                            # --- 2. RESUME SCREENING ---
+                            st.caption("Identity Verified. Analyzing qualifications...")
                             analysis = screen_resume_ai(
                                 resume_text, 
                                 selected_role_title, 
