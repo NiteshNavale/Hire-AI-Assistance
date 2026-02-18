@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import os
@@ -62,6 +63,14 @@ def apply_custom_styles():
         /* Popover styling tweaks */
         div[data-testid="stPopoverBody"] {
             border-radius: 12px;
+        }
+        
+        /* Cheat Detection Button Hiding */
+        div[data-testid="stButton"] button:has(div p:contains("CHEAT_TRIGGER")),
+        div[data-testid="stButton"] button:contains("CHEAT_TRIGGER"),
+        div[data-testid="stButton"] button:has(div p:contains("TIME_UP_TRIGGER")),
+        div[data-testid="stButton"] button:contains("TIME_UP_TRIGGER") {
+            display: none;
         }
 
         /* Hide default Streamlit chrome */
@@ -1522,6 +1531,21 @@ def view_interview_room():
     else:
         user = st.session_state.active_user
         
+        # CHEAT CHECK (Immediate Rejection Screen)
+        if user.get('rejection_reason') == 'Academic Dishonesty Detected (Tab Switching)':
+            st.error("🛑 EXAM TERMINATED")
+            with st.container(border=True):
+                st.markdown("## 🚫 Disqualified")
+                st.write(f"Candidate: {user['name']}")
+                st.error("Reason: Academic Dishonesty Detected")
+                st.caption("Our system detected that you switched tabs or minimized the exam window. This is a violation of the examination protocols.")
+                st.divider()
+                st.info("You have been logged out of the examination process.")
+                if st.button("Logout"):
+                    st.session_state.active_user = None
+                    st.rerun()
+            return
+
         # --- SELECTED / DOCUMENT SUBMISSION STAGE ---
         if user.get('status') == 'Selected':
             st.title(f"🎉 Congratulations, {user['name']}!")
@@ -1664,32 +1688,99 @@ def view_interview_room():
                         st.session_state.exam_start_time = datetime.now()
                         st.rerun()
         else:
-            # Calculate Time Remaining
-            elapsed = datetime.now() - st.session_state.exam_start_time
-            remaining = timedelta(minutes=test_duration) - elapsed
+            # -----------------------------------------------
+            # REAL-TIME JS TIMER & CHEAT DETECTION INJECTION
+            # -----------------------------------------------
             
-            is_expired = remaining.total_seconds() <= 0
+            # 1. Hidden Streamlit Buttons
+            # We create buttons that JS can click to trigger server-side events.
+            # We hide them using the CSS defined in apply_custom_styles()
+            col_hidden = st.columns(1)[0]
+            with col_hidden:
+                cheat_detected = st.button("CHEAT_TRIGGER", key="btn_cheat")
+                time_up_detected = st.button("TIME_UP_TRIGGER", key="btn_time_up")
+
+            # 2. Logic to handle the triggers immediately
+            if cheat_detected:
+                user['status'] = 'Rejected'
+                user['rejection_reason'] = 'Academic Dishonesty Detected (Tab Switching)'
+                user['archived'] = True 
+                database.save_candidate(user)
+                st.session_state.active_user = user # Update session
+                st.rerun()
+
+            # 3. Calculate Time Remaining for JS init
+            elapsed_seconds = (datetime.now() - st.session_state.exam_start_time).total_seconds()
+            remaining_seconds = int((test_duration * 60) - elapsed_seconds)
             
-            # Show Timer
-            if not is_expired:
-                mins, secs = divmod(int(remaining.total_seconds()), 60)
-                st.metric("Time Remaining", f"{mins:02}:{secs:02}")
+            # 4. Inject JS
+            js_code = f"""
+            <div id="timer-box" style="position: fixed; top: 60px; right: 20px; background-color: #e0f2fe; border: 2px solid #3b82f6; color: #1e3a8a; padding: 15px 25px; border-radius: 12px; font-weight: 900; font-size: 20px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                <span id="time-display">Loading...</span>
+                <span style="font-size: 10px; color: #ef4444; text-transform: uppercase; display: block; margin-top: 4px;">⚠️ Do Not Switch Tabs</span>
+            </div>
+
+            <script>
+                // Timer Logic
+                let timeLeft = {remaining_seconds};
+                const timerDisplay = document.getElementById('time-display');
+                
+                const interval = setInterval(() => {{
+                    if (timeLeft <= 0) {{
+                        clearInterval(interval);
+                        if (timerDisplay) timerDisplay.innerText = "00:00";
+                        
+                        // Trigger Time Up Button
+                        const buttons = window.parent.document.querySelectorAll('button');
+                        for (const btn of buttons) {{
+                            if (btn.innerText.includes("TIME_UP_TRIGGER")) {{
+                                btn.click();
+                                break;
+                            }}
+                        }}
+                    }} else {{
+                        const m = Math.floor(timeLeft / 60);
+                        const s = Math.floor(timeLeft % 60);
+                        if (timerDisplay) timerDisplay.innerText = `${{m}}:${{s < 10 ? '0' : ''}}${{s}}`;
+                        timeLeft--;
+                    }}
+                }}, 1000);
+
+                // Anti-Cheat Logic
+                document.addEventListener("visibilitychange", () => {{
+                    if (document.hidden) {{
+                        // Trigger Cheat Button
+                        const buttons = window.parent.document.querySelectorAll('button');
+                        for (const btn of buttons) {{
+                            if (btn.innerText.includes("CHEAT_TRIGGER")) {{
+                                btn.click();
+                                break;
+                            }}
+                        }}
+                    }}
+                }});
+            </script>
+            """
+            components.html(js_code, height=0)
+
+            # -----------------------------------------------
             
             questions = st.session_state.aptitude_questions
             
             # --- AUTO SUBMIT OR MANUAL SUBMIT LOGIC ---
-            if is_expired:
-                st.error("⏰ Time is up! Submitting your answers automatically...")
-                # Fall through to grading logic
+            # Also check server-side time just in case JS fails
+            is_expired_server = remaining_seconds <= 0
             
-            with st.form("exam_form"):
-                # If expired, we don't render inputs, just processing
-                if not is_expired:
+            if is_expired_server or time_up_detected:
+                st.warning("⏰ Time is up! Submitting your answers automatically...")
+                # Fall through to grading logic by simulating click if needed, or just run logic block
+                submit_clicked = True
+            else:
+                with st.form("exam_form"):
                     for i, q in enumerate(questions):
                         st.markdown(f"**{i+1}. {q['question']}**")
                         st.caption(f"Category: {q['category']}")
                         
-                        # Note: key=f"q_{i}" automatically stores selection in session_state
                         st.radio(
                             "Select Answer",
                             q['options'], 
@@ -1697,11 +1788,11 @@ def view_interview_room():
                             label_visibility="collapsed"
                         )
                         st.divider()
-                
-                submit_clicked = st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary")
+                    
+                    submit_clicked = st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary")
             
             # Trigger submission if clicked OR if time expired
-            if submit_clicked or is_expired:
+            if submit_clicked:
                 score = 0
                 user_answers = {}
                 
@@ -1740,11 +1831,7 @@ def view_interview_room():
                 
                 st.session_state.active_user = user
                 
-                if is_expired:
-                     time.sleep(2) # Show the error message for a bit
-                else:
-                     st.balloons()
-                
+                st.balloons()
                 st.rerun()
 
 # --- MAIN APP ROUTING ---
