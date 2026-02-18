@@ -120,6 +120,16 @@ def check_email_config():
         api_key = st.secrets["SENDGRID_API_KEY"]
     return api_key is not None
 
+def get_test_duration():
+    """Returns test duration in minutes from config, default 20."""
+    try:
+        val = os.environ.get("APTITUDE_TEST_DURATION_MINUTES")
+        if hasattr(st, "secrets") and "APTITUDE_TEST_DURATION_MINUTES" in st.secrets:
+            val = st.secrets["APTITUDE_TEST_DURATION_MINUTES"]
+        return int(val) if val else 20
+    except:
+        return 20
+
 def resend_candidate_email(c):
     """
     Reconstructs and resends the last relevant email based on candidate status.
@@ -1461,68 +1471,107 @@ def view_interview_room():
                      st.info("Detailed results not available for this session.")
              return
 
+        # --- TIMER LOGIC ---
+        test_duration = get_test_duration()
+        
         if 'aptitude_questions' not in st.session_state:
             with st.container(border=True):
                 st.subheader("Assessment Instructions")
-                st.markdown("""
+                st.markdown(f"""
                 * This exam consists of **20 Multiple Choice Questions**.
-                * Once you start, please complete all questions before submitting.
+                * You have **{test_duration} minutes** to complete the test.
+                * Once you start, the timer will not stop.
+                * Answers will be automatically submitted when time runs out.
                 """)
                 
                 if st.button("GENERATE & START EXAM", type="primary"):
                     with st.spinner(f"AI is generating a unique test for {user['role']} role..."):
                         st.session_state.aptitude_questions = generate_aptitude_questions(user['role'])
+                        st.session_state.exam_start_time = datetime.now()
                         st.rerun()
         else:
+            # Calculate Time Remaining
+            elapsed = datetime.now() - st.session_state.exam_start_time
+            remaining = timedelta(minutes=test_duration) - elapsed
+            
+            is_expired = remaining.total_seconds() <= 0
+            
+            # Show Timer
+            if not is_expired:
+                mins, secs = divmod(int(remaining.total_seconds()), 60)
+                st.metric("Time Remaining", f"{mins:02}:{secs:02}")
+            
             questions = st.session_state.aptitude_questions
+            
+            # --- AUTO SUBMIT OR MANUAL SUBMIT LOGIC ---
+            if is_expired:
+                st.error("⏰ Time is up! Submitting your answers automatically...")
+                # Fall through to grading logic
+            
             with st.form("exam_form"):
-                user_answers = {}
-                for i, q in enumerate(questions):
-                    st.markdown(f"**{i+1}. {q['question']}**")
-                    st.caption(f"Category: {q['category']}")
-                    
-                    user_answers[i] = st.radio(
-                        "Select Answer",
-                        q['options'], 
-                        key=f"q_{i}", 
-                        label_visibility="collapsed"
-                    )
-                    st.divider()
-                
-                if st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary"):
-                    score = 0
-                    details = {
-                        "questions": questions,
-                        "answers": user_answers 
-                    }
-                    
+                # If expired, we don't render inputs, just processing
+                if not is_expired:
                     for i, q in enumerate(questions):
-                        selected_option = user_answers.get(i)
-                        try:
+                        st.markdown(f"**{i+1}. {q['question']}**")
+                        st.caption(f"Category: {q['category']}")
+                        
+                        # Note: key=f"q_{i}" automatically stores selection in session_state
+                        st.radio(
+                            "Select Answer",
+                            q['options'], 
+                            key=f"q_{i}", 
+                            label_visibility="collapsed"
+                        )
+                        st.divider()
+                
+                submit_clicked = st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary")
+            
+            # Trigger submission if clicked OR if time expired
+            if submit_clicked or is_expired:
+                score = 0
+                user_answers = {}
+                
+                # Retrieve answers from session state
+                for i, q in enumerate(questions):
+                    selected_option = st.session_state.get(f"q_{i}")
+                    user_answers[i] = selected_option
+                    
+                    try:
+                        if selected_option:
                             selected_index = q['options'].index(selected_option)
                             if selected_index == q['correct_index']:
                                 score += 1
-                        except:
-                            pass
-                    
-                    final_percentage = int((score / len(questions)) * 100)
-                    
-                    # Update Candidate in DB FIRST so status is correct for resend function
-                    user['aptitude_score'] = final_percentage
-                    user['aptitude_details'] = details
-                    user['status'] = 'Aptitude Completed'
-                    database.save_candidate(user)
-                    
-                    # Resend Email (Passed/Failed) using helper
-                    email_sent, email_msg = resend_candidate_email(user)
+                    except:
+                        pass
+                
+                final_percentage = int((score / len(questions)) * 100)
+                
+                details = {
+                    "questions": questions,
+                    "answers": user_answers 
+                }
+                
+                # Update Candidate in DB FIRST so status is correct for resend function
+                user['aptitude_score'] = final_percentage
+                user['aptitude_details'] = details
+                user['status'] = 'Aptitude Completed'
+                database.save_candidate(user)
+                
+                # Resend Email (Passed/Failed) using helper
+                email_sent, email_msg = resend_candidate_email(user)
 
-                    user['email_status'] = "Sent" if email_sent else "Failed"
-                    user['email_error'] = email_msg if not email_sent else None
-                    database.save_candidate(user)
-                    
-                    st.session_state.active_user = user
-                    st.balloons()
-                    st.rerun()
+                user['email_status'] = "Sent" if email_sent else "Failed"
+                user['email_error'] = email_msg if not email_sent else None
+                database.save_candidate(user)
+                
+                st.session_state.active_user = user
+                
+                if is_expired:
+                     time.sleep(2) # Show the error message for a bit
+                else:
+                     st.balloons()
+                
+                st.rerun()
 
 # --- MAIN APP ROUTING ---
 nav_choice = sidebar_nav()

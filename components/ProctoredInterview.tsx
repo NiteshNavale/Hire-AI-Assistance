@@ -13,7 +13,10 @@ const ProctoredInterview: React.FC<ProctoredInterviewProps> = ({ candidate, onCo
   const [questions, setQuestions] = useState<any[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [score, setScore] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(1200); // 20 minutes
+  
+  // Get duration from Env or default to 20 mins
+  const durationMinutes = Number(process.env.REACT_APP_APTITUDE_TEST_DURATION_MINUTES || 20);
+  const [timeLeft, setTimeLeft] = useState(durationMinutes * 60);
   
   // Load questions on start
   const startExam = async () => {
@@ -82,7 +85,7 @@ const ProctoredInterview: React.FC<ProctoredInterviewProps> = ({ candidate, onCo
                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Questions</span>
              </div>
              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-               <span className="block text-2xl font-black text-slate-700">20m</span>
+               <span className="block text-2xl font-black text-slate-700">{durationMinutes}m</span>
                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Limit</span>
              </div>
              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
