@@ -130,6 +130,19 @@ def get_test_duration():
     except:
         return 20
 
+def save_uploaded_doc(uploaded_file, candidate_id, doc_type):
+    """Saves uploaded documents to a local uploads folder."""
+    if not os.path.exists("uploads"):
+        os.makedirs("uploads")
+    
+    file_ext = uploaded_file.name.split('.')[-1]
+    file_name = f"{candidate_id}_{doc_type}.{file_ext}"
+    file_path = os.path.join("uploads", file_name)
+    
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return file_path
+
 def resend_candidate_email(c):
     """
     Reconstructs and resends the last relevant email based on candidate status.
@@ -206,15 +219,11 @@ Congratulations! We are pleased to inform you that you have cleared the final in
 We are currently preparing your formal offer. A confirmation letter will be shared with you shortly.
 
 Action Required:
-Please submit the following documents within the next 4 days for verification:
+Please login to the candidate portal and submit the following documents for verification:
 1. Valid Government ID Proof (Passport/Aadhaar/Driver's License)
 2. Current Address Proof
-3. Educational Certificates (Degree/Mark sheets)
-4. Experience Letter / Relieving Letter (if applicable)
 
-Please reply to this email with the attached documents.
-
-We look forward to welcoming you to the team!
+Once verified, we will issue your formal Joining Letter.
 
 Best regards,
 HireAI HR Team
@@ -585,7 +594,9 @@ def view_candidate_portal():
                                 "email_status": "Pending", 
                                 "email_error": None,
                                 "archived": False,
-                                "recruiter": None # Initially unassigned
+                                "recruiter": None, # Initially unassigned
+                                "documents_uploaded": False,
+                                "documents": {}
                             }
                             
                             database.save_candidate(new_candidate) # Save first to use helper
@@ -1153,8 +1164,23 @@ def view_hr_dashboard():
                             
                             with c2:
                                 if c['status'] == 'Selected':
-                                    st.warning("Waiting for Documents")
-                                    st.caption("Requested: ID, Address, Edu, Exp")
+                                    if c.get('documents_uploaded'):
+                                        st.success("Docs Uploaded")
+                                        
+                                        # Show download buttons
+                                        docs = c.get('documents', {})
+                                        col_d1, col_d2 = st.columns(2)
+                                        with col_d1:
+                                            if docs.get('id_proof') and os.path.exists(docs['id_proof']):
+                                                with open(docs['id_proof'], "rb") as f:
+                                                    st.download_button("⬇️ ID Proof", f, file_name=os.path.basename(docs['id_proof']), key=f"dl_id_{c['id']}")
+                                        with col_d2:
+                                            if docs.get('address_proof') and os.path.exists(docs['address_proof']):
+                                                with open(docs['address_proof'], "rb") as f:
+                                                    st.download_button("⬇️ Addr Proof", f, file_name=os.path.basename(docs['address_proof']), key=f"dl_ad_{c['id']}")
+                                    else:
+                                        st.warning("Waiting for Documents")
+                                        st.caption("Requested: ID, Address")
                                 elif c['status'] == 'Joining Scheduled':
                                     st.success(f"Joining: {c.get('joining_date')}")
                                     st.caption("Joining Letter Sent")
@@ -1175,7 +1201,13 @@ def view_hr_dashboard():
                                             
                                             st.info("This will trigger the official Joining Letter email.")
                                             
-                                            if st.button("Confirm & Send Letter", key=f"btn_join_{c['id']}", type="primary"):
+                                            # Disable if documents not uploaded
+                                            btn_disabled = not c.get('documents_uploaded')
+                                            
+                                            if btn_disabled:
+                                                st.error("Cannot send letter: Documents Pending")
+                                            
+                                            if st.button("Confirm & Send Letter", key=f"btn_join_{c['id']}", type="primary", disabled=btn_disabled):
                                                 c['joining_date'] = j_date.strftime("%Y-%m-%d")
                                                 c['status'] = 'Joining Scheduled'
                                                 database.save_candidate(c)
@@ -1452,6 +1484,48 @@ def view_interview_room():
     else:
         user = st.session_state.active_user
         
+        # --- SELECTED / DOCUMENT SUBMISSION STAGE ---
+        if user.get('status') == 'Selected':
+            st.title(f"🎉 Congratulations, {user['name']}!")
+            
+            # If documents are already uploaded
+            if user.get('documents_uploaded'):
+                 with st.container(border=True):
+                     st.success("✅ Documents Submitted Successfully")
+                     st.info("Your profile is currently under verification by the HR team. We will contact you shortly with your Joining Letter.")
+                     st.caption("If you need to update your documents, please contact HR directly.")
+                 return
+
+            st.balloons()
+            with st.container(border=True):
+                st.success("You have been selected for the role! Please submit your documents to proceed.")
+                
+                st.markdown("### 📂 Document Submission")
+                st.write("Please upload clear copies of the following documents.")
+                
+                id_proof = st.file_uploader("Upload ID Proof (Passport/Aadhaar/License) - PDF/Image", type=['pdf', 'png', 'jpg', 'jpeg'], key="up_id")
+                addr_proof = st.file_uploader("Upload Address Proof - PDF/Image", type=['pdf', 'png', 'jpg', 'jpeg'], key="up_addr")
+                
+                if st.button("Submit Documents for Verification", type="primary"):
+                    if id_proof and addr_proof:
+                        # Save files
+                        p1 = save_uploaded_doc(id_proof, user['id'], "ID_Proof")
+                        p2 = save_uploaded_doc(addr_proof, user['id'], "Address_Proof")
+                        
+                        user['documents'] = {
+                            "id_proof": p1,
+                            "address_proof": p2
+                        }
+                        user['documents_uploaded'] = True
+                        database.save_candidate(user)
+                        
+                        st.toast("Documents submitted successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Please upload both documents to proceed.")
+            return
+
         if user.get('status') == 'Interview Scheduled':
             round_label = "First Round" if user.get('interview_round', 1) == 1 else "Second Round"
             st.title(f"{round_label} Interview: {user['name']}")
