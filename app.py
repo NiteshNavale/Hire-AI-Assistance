@@ -86,6 +86,12 @@ if 'hr_authenticated' not in st.session_state:
 if 'hr_username' not in st.session_state:
     st.session_state.hr_username = None
 
+# VP Auth State
+if 'vp_authenticated' not in st.session_state:
+    st.session_state.vp_authenticated = False
+if 'vp_username' not in st.session_state:
+    st.session_state.vp_username = None
+
 # --- API CLIENT ---
 def get_client():
     # Priority: 1. Streamlit Secrets (Cloud), 2. Environment Variable (VPS/Heroku/.env)
@@ -227,6 +233,47 @@ Please join the link at the scheduled time.
 Best regards,
 HireAI Recruiting Team
 """
+    elif status == 'VP Approval':
+        return False, "No email for VP Approval stage."
+
+    elif status == 'Offer Signed':
+        return False, "No email for Offer Signed stage."
+
+    elif status == 'Offer Sent':
+        subject = "Official Offer Letter - HireAI"
+        body = f"""
+Dear {c['name']},
+
+We are pleased to offer you the position of {c['role']} at HireAI!
+
+Your offer letter has been approved and signed.
+
+Please login to the Candidate Portal to view and accept your offer.
+You have 3 days to accept this offer.
+
+Access Key: {c.get('access_key', 'N/A')}
+
+Best regards,
+HireAI HR Team
+"""
+
+    elif status == 'Offer Accepted':
+        subject = "Offer Acceptance Confirmed - HireAI"
+        body = f"""
+Dear {c['name']},
+
+Thank you for accepting our offer! We are thrilled to have you join us.
+
+Please login to the candidate portal and submit the following documents for verification:
+1. Valid Government ID Proof (Passport/Aadhaar/Driver's License)
+2. Current Address Proof
+
+Once verified, we will issue your formal Joining Letter.
+
+Best regards,
+HireAI HR Team
+"""
+
     elif status == 'Selected':
         subject = "Congratulations! You have been Selected - HireAI"
         body = f"""
@@ -496,7 +543,7 @@ def sidebar_nav():
              st.markdown("### HireAI")
         
         choice = st.radio("Navigation", 
-                         ["Candidate Portal", "Candidate Login", "HR Dashboard"],
+                         ["Candidate Portal", "Candidate Login", "HR Dashboard", "VP Login"],
                          key="nav_radio")
         
         st.divider()
@@ -703,6 +750,73 @@ def view_candidate_portal():
             time.sleep(1)
             st.rerun()
 
+def view_vp_dashboard():
+    if not st.session_state.get('vp_authenticated', False):
+        st.title("VP Login")
+        col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+        with col_c2:
+            with st.container(border=True):
+                st.markdown("### 🔐 VP Access")
+                with st.form("vp_login_form"):
+                    username = st.text_input("Username", placeholder="vp")
+                    password = st.text_input("Password", type="password", placeholder="••••••")
+                    
+                    if st.form_submit_button("Login", type="primary"):
+                        if username == "vp" and password == "vp123":
+                            st.session_state.vp_authenticated = True
+                            st.session_state.vp_username = username
+                            st.toast(f"Welcome VP!", icon="👋")
+                            st.rerun()
+                        else:
+                            st.error("Invalid credentials.")
+                st.caption("Default VP: `vp` / `vp123`")
+        return
+
+    st.title("VP Dashboard - Candidate Approval")
+    if st.button("Logout VP", key="logout_vp", type="secondary"):
+        st.session_state.vp_authenticated = False
+        st.rerun()
+
+    # Filter candidates for VP Approval
+    vp_candidates = [c for c in candidates if c.get('status') == 'VP Approval']
+    
+    # Sort by score (descending) and take top 5
+    vp_candidates.sort(key=lambda x: x.get('score', 0), reverse=True)
+    top_5_candidates = vp_candidates[:5]
+    
+    st.markdown(f"### Pending Approvals ({len(vp_candidates)})")
+    
+    if not top_5_candidates:
+        st.info("No candidates pending approval.")
+        return
+
+    for c in top_5_candidates:
+        with st.container(border=True):
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+            
+            with col1:
+                st.markdown(f"**{c['name']}**")
+                st.caption(c['role'])
+                st.markdown(f"**Score:** {c.get('score', 0)}")
+            
+            with col2:
+                st.markdown(f"**Notice Period:** {c.get('notice_period', 'N/A')}")
+                st.markdown(f"**Exp:** {c.get('years_experience', 0)} Years")
+            
+            with col3:
+                with st.popover("📄 View Details"):
+                    render_candidate_details(c)
+            
+            with col4:
+                if st.button("✍️ Sign Offer Letter", key=f"sign_{c['id']}", type="primary"):
+                    c['status'] = 'Offer Signed'
+                    c['offer_signed_by'] = 'VP'
+                    c['offer_signed_date'] = datetime.now().strftime("%Y-%m-%d")
+                    database.save_candidate(c)
+                    st.success(f"Offer signed for {c['name']}")
+                    time.sleep(1)
+                    st.rerun()
+
 def view_hr_dashboard():
     if not st.session_state.hr_authenticated:
         st.title("Recruiter Login")
@@ -770,7 +884,7 @@ def view_hr_dashboard():
             stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
             stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
             stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
-            stage_selected = [c for c in active_candidates if c['status'] in ['Selected', 'Joining Scheduled']]
+            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected']]
             
             subtab_1, subtab_2, subtab_3, subtab_4 = st.tabs([
                 f"📋 Screening ({len(stage_screening)})",
@@ -1136,16 +1250,17 @@ def view_hr_dashboard():
                                     # --- Selection Action for Round 2 ---
                                     if current_round == 2:
                                         st.markdown("**Selection Decision**")
-                                        if st.button("✅ Select Candidate", key=f"sel_{c['id']}", type="primary"):
-                                            c['status'] = 'Selected'
-                                            database.save_candidate(c)
+                                        with st.popover("✅ Pass & Send to VP"):
+                                            st.markdown("### Candidate Details")
+                                            notice_p = st.selectbox("Notice Period", ["Immediate", "1 Month", "2 Months", "3 Months"], key=f"np_{c['id']}")
                                             
-                                            # Send Selection Email (Request Docs)
-                                            resend_candidate_email(c)
-                                            st.balloons()
-                                            st.toast(f"Candidate Selected! Document Request Sent.")
-                                            time.sleep(2)
-                                            st.rerun()
+                                            if st.button("Confirm & Send", key=f"btn_vp_{c['id']}", type="primary"):
+                                                c['status'] = 'VP Approval'
+                                                c['notice_period'] = notice_p
+                                                database.save_candidate(c)
+                                                st.success("Sent to VP for Approval")
+                                                time.sleep(1)
+                                                st.rerun()
 
                                     st.divider()
                                     # --- Rejection Action (Available in both rounds) ---
@@ -1179,7 +1294,7 @@ def view_hr_dashboard():
             # --- OFFERS & JOINING TAB ---
             with subtab_4:
                 if not stage_selected:
-                    st.info("No selected candidates waiting for joining.")
+                    st.info("No candidates in Offer/Joining stage.")
                 else:
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([3, 3, 2])
@@ -1199,7 +1314,17 @@ def view_hr_dashboard():
                                 st.markdown(f"📧 Email: :{color}[{email_status}]")
                             
                             with c2:
-                                if c['status'] == 'Selected':
+                                if c['status'] == 'VP Approval':
+                                    st.info("⏳ Pending VP Approval")
+                                    st.caption(f"Notice: {c.get('notice_period')}")
+                                elif c['status'] == 'Offer Signed':
+                                    st.success("✅ Offer Signed by VP")
+                                    st.caption(f"Date: {c.get('offer_signed_date')}")
+                                elif c['status'] == 'Offer Sent':
+                                    st.info("📩 Offer Sent to Candidate")
+                                    st.caption("Waiting for Acceptance")
+                                elif c['status'] == 'Offer Accepted':
+                                    st.success("🎉 Offer Accepted!")
                                     if c.get('documents_uploaded'):
                                         st.success("Docs Uploaded")
                                         
@@ -1220,6 +1345,8 @@ def view_hr_dashboard():
                                 elif c['status'] == 'Joining Scheduled':
                                     st.success(f"Joining: {c.get('joining_date')}")
                                     st.caption("Joining Letter Sent")
+                                elif c['status'] == 'Selected': # Fallback
+                                    st.info("Legacy Selected Status")
                             
                             with c3:
                                 with st.popover("📄 View Profile"):
@@ -1230,7 +1357,17 @@ def view_hr_dashboard():
                                 is_owner = not assigned or assigned == current_hr or is_super_admin
                                 
                                 if is_owner:
-                                    if c['status'] == 'Selected':
+                                    if c['status'] == 'Offer Signed':
+                                        if st.button("✉️ Send Offer Letter", key=f"snd_off_{c['id']}", type="primary"):
+                                            c['status'] = 'Offer Sent'
+                                            c['offer_sent_date'] = datetime.now().strftime("%Y-%m-%d")
+                                            database.save_candidate(c)
+                                            resend_candidate_email(c)
+                                            st.toast("Offer Letter Sent!")
+                                            time.sleep(1)
+                                            st.rerun()
+                                    
+                                    elif c['status'] == 'Offer Accepted':
                                         with st.popover("Send Joining Letter"):
                                             st.markdown("### 📅 Finalize Joining")
                                             j_date = st.date_input("Joining Date", key=f"jd_{c['id']}")
@@ -1535,8 +1672,62 @@ def view_interview_room():
                     st.rerun()
             return
 
+        # --- OFFER STAGE ---
+        if user.get('status') == 'Offer Sent':
+            # Check expiration
+            sent_date_str = user.get('offer_sent_date')
+            if sent_date_str:
+                try:
+                    sent_date = datetime.strptime(sent_date_str, "%Y-%m-%d")
+                    if (datetime.now() - sent_date).days > 3:
+                        user['status'] = 'Offer Expired'
+                        database.save_candidate(user)
+                        st.error("🚫 Offer Expired")
+                        st.info("The validity period for this offer has ended.")
+                        return
+                except:
+                    pass
+
+            st.title("🎉 Official Offer Letter")
+            st.balloons()
+            
+            with st.container(border=True):
+                st.markdown(f"## Congratulations, {user['name']}!")
+                st.markdown(f"We are delighted to offer you the position of **{user['role']}** at HireAI.")
+                
+                st.divider()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Offer Details:**")
+                    st.markdown(f"- **Role:** {user['role']}")
+                    st.markdown(f"- **Date:** {user.get('offer_sent_date', datetime.now().strftime('%Y-%m-%d'))}")
+                    st.markdown(f"- **Signed By:** {user.get('offer_signed_by', 'VP')}")
+                
+                with col2:
+                    st.markdown("**Action Required:**")
+                    st.info("Please review and accept this offer within 3 days.")
+                
+                st.divider()
+                
+                if st.button("✅ ACCEPT OFFER", type="primary", use_container_width=True):
+                    user['status'] = 'Offer Accepted'
+                    database.save_candidate(user)
+                    resend_candidate_email(user)
+                    st.success("Offer Accepted!")
+                    st.rerun()
+                
+                if st.button("❌ Decline Offer", type="secondary", use_container_width=True):
+                    user['status'] = 'Rejected'
+                    user['rejection_reason'] = 'Candidate Declined Offer'
+                    user['archived'] = True
+                    database.save_candidate(user)
+                    st.warning("Offer Declined.")
+                    st.rerun()
+            return
+
         # --- SELECTED / DOCUMENT SUBMISSION STAGE ---
-        if user.get('status') == 'Selected':
+        if user.get('status') in ['Selected', 'Offer Accepted']:
             st.title(f"🎉 Congratulations, {user['name']}!")
             
             # If documents are already uploaded
@@ -1854,5 +2045,7 @@ if nav_choice == "Candidate Portal":
     view_candidate_portal()
 elif nav_choice == "HR Dashboard":
     view_hr_dashboard()
+elif nav_choice == "VP Login":
+    view_vp_dashboard()
 elif nav_choice == "Candidate Login":
     view_interview_room()
