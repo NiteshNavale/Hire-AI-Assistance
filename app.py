@@ -118,6 +118,125 @@ def set_generated_link_callback(key):
     """Callback to update session state with a new meeting link before render."""
     st.session_state[key] = generate_meeting_link()
 
+def generate_employee_id(name):
+    """
+    Generates a 12-digit Employee ID.
+    Format: 4 Letters (Name Initials/Padded) + 8 Digits
+    """
+    first_name = name.strip().split(' ')[0].upper()
+    # Remove non-alpha
+    first_name = "".join([c for c in first_name if c.isalpha()])
+    
+    prefix = ""
+    if len(first_name) >= 4:
+        prefix = first_name[:4]
+    else:
+        vowels = ['A', 'E', 'I', 'O', 'U']
+        needed = 4 - len(first_name)
+        suffix = "".join(random.choices(vowels, k=needed))
+        prefix = first_name + suffix
+    
+    digits = "".join(random.choices(string.digits, k=8))
+    return f"{prefix}{digits}"
+
+TRAINING_MODULES = [
+    {
+        "id": 1,
+        "title": "Corporate Values & Ethics",
+        "content": """
+        ### 1. Integrity First
+        We believe in doing the right thing, even when no one is watching. Our reputation is built on trust.
+        
+        ### 2. Respect for All
+        We foster an inclusive environment where every voice is heard and valued. Discrimination of any kind is not tolerated.
+        
+        ### 3. Accountability
+        We take ownership of our actions and their outcomes. We deliver on our promises to clients and colleagues.
+        """,
+        "questions": [
+            {"q": "What is the core of our reputation?", "options": ["Profit", "Trust", "Speed", "Size"], "correct": "Trust"},
+            {"q": "How do we handle discrimination?", "options": ["Ignore it", "Tolerate it", "Not tolerated", "Encourage it"], "correct": "Not tolerated"},
+            {"q": "Who is responsible for our actions?", "options": ["Manager", "HR", "We ourselves", "Client"], "correct": "We ourselves"}
+        ]
+    },
+    {
+        "id": 2,
+        "title": "Data Privacy & Security",
+        "content": """
+        ### 1. Confidentiality
+        Protect sensitive information. Do not share client data with unauthorized personnel.
+        
+        ### 2. Password Security
+        Use strong passwords and never share them. Enable 2FA where available.
+        
+        ### 3. Phishing Awareness
+        Be cautious of suspicious emails. Do not click on unknown links or download attachments from unverified sources.
+        """,
+        "questions": [
+            {"q": "Who can see client data?", "options": ["Everyone", "Family", "Unauthorized personnel", "Authorized personnel"], "correct": "Authorized personnel"},
+            {"q": "What should you do with your password?", "options": ["Share it", "Write it on a note", "Keep it secret", "Use '123456'"], "correct": "Keep it secret"},
+            {"q": "What is a sign of phishing?", "options": ["Verified sender", "Suspicious links", "Expected email", "Personal greeting"], "correct": "Suspicious links"}
+        ]
+    },
+    {
+        "id": 3,
+        "title": "Workplace Harassment Policy",
+        "content": """
+        ### 1. Zero Tolerance
+        We have a zero-tolerance policy towards harassment, bullying, or intimidation.
+        
+        ### 2. Reporting Mechanism
+        If you witness or experience harassment, report it immediately to HR or via the anonymous hotline.
+        
+        ### 3. Professional Conduct
+        Maintain professionalism in all interactions, including digital communications.
+        """,
+        "questions": [
+            {"q": "What is our policy on harassment?", "options": ["Zero Tolerance", "Three strikes", "Case by case", "Allowed"], "correct": "Zero Tolerance"},
+            {"q": "How should you report harassment?", "options": ["Keep quiet", "Tell a friend", "Report to HR", "Post on social media"], "correct": "Report to HR"},
+            {"q": "Where does professional conduct apply?", "options": ["Office only", "All interactions", "Client meetings only", "Never"], "correct": "All interactions"}
+        ]
+    },
+    {
+        "id": 4,
+        "title": "Employee Benefits & Leaves",
+        "content": """
+        ### 1. Health Insurance
+        Comprehensive health coverage for you and your immediate family.
+        
+        ### 2. Paid Time Off
+        20 days of annual leave, plus 10 sick days. Work-life balance is a priority.
+        
+        ### 3. Learning Budget
+        Annual budget for professional development courses and certifications.
+        """,
+        "questions": [
+            {"q": "Who is covered by health insurance?", "options": ["Only you", "You and family", "No one", "Only parents"], "correct": "You and family"},
+            {"q": "How many annual leave days?", "options": ["10", "15", "20", "30"], "correct": "20"},
+            {"q": "What is the learning budget for?", "options": ["Parties", "Travel", "Professional development", "Groceries"], "correct": "Professional development"}
+        ]
+    },
+    {
+        "id": 5,
+        "title": "Performance & Growth",
+        "content": """
+        ### 1. Goal Setting
+        Set clear, measurable goals with your manager at the start of each quarter.
+        
+        ### 2. Feedback Culture
+        Regular 1:1s and continuous feedback help us grow. Be open to constructive criticism.
+        
+        ### 3. Career Progression
+        We support internal mobility. Promotions are based on merit and impact.
+        """,
+        "questions": [
+            {"q": "When are goals set?", "options": ["Daily", "Weekly", "Start of quarter", "End of year"], "correct": "Start of quarter"},
+            {"q": "What helps us grow?", "options": ["Silence", "Continuous feedback", "Ignoring errors", "Working alone"], "correct": "Continuous feedback"},
+            {"q": "What are promotions based on?", "options": ["Tenure", "Favoritism", "Merit and impact", "Luck"], "correct": "Merit and impact"}
+        ]
+    }
+]
+
 def check_email_config():
     """Checks if SendGrid credentials are present."""
     api_key = os.environ.get("SENDGRID_API_KEY")
@@ -312,6 +431,38 @@ Welcome to the family!
 Best regards,
 HireAI HR Team
 """
+    elif status == 'Training':
+        subject = "Welcome to HireAI - Training Portal Access"
+        body = f"""
+Dear {c['name']},
+
+Welcome aboard! We are excited to have you start your journey with us.
+
+Your Employee ID has been generated. Please use this to access the Training Portal.
+You must complete the mandatory training modules to finalize your onboarding.
+
+**New Employee ID:** {c.get('access_key', 'N/A')}
+
+Please login to the Candidate Portal using this new ID.
+
+Best regards,
+HireAI HR Team
+"""
+
+    elif status == 'Employee Confirmed':
+        subject = "Training Completed - You are officially Hired!"
+        body = f"""
+Dear {c['name']},
+
+Congratulations on successfully completing the mandatory training!
+
+You are now officially a permanent employee of HireAI.
+We wish you a successful career with us.
+
+Best regards,
+HireAI HR Team
+"""
+
     elif status == 'Rejected':
         round_num = c.get('interview_round', 1)
         round_name = "First Round" if round_num == 1 else "Second Round"
@@ -884,7 +1035,7 @@ def view_hr_dashboard():
             stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
             stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
             stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
-            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected']]
+            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected', 'Training', 'Employee Confirmed']]
             
             subtab_1, subtab_2, subtab_3, subtab_4 = st.tabs([
                 f"📋 Screening ({len(stage_screening)})",
@@ -1395,6 +1546,30 @@ def view_hr_dashboard():
                                             sent, msg = resend_candidate_email(c)
                                             if sent: st.toast("Joining Letter Resent")
                                             else: st.error(f"Failed: {msg}")
+                                        
+                                        st.divider()
+                                        if st.button("🚀 Onboard & Start Training", key=f"btn_train_{c['id']}", type="primary"):
+                                            # Generate Employee ID
+                                            new_emp_id = generate_employee_id(c['name'])
+                                            c['access_key'] = new_emp_id # Update Key
+                                            c['status'] = 'Training'
+                                            c['training_progress'] = {} # Init progress
+                                            database.save_candidate(c)
+                                            
+                                            # Send Email with new ID
+                                            resend_candidate_email(c)
+                                            
+                                            st.success(f"Onboarded! New Employee ID: {new_emp_id}")
+                                            st.info("Candidate notified to start training.")
+                                            time.sleep(2)
+                                            st.rerun()
+                                    
+                                    elif c['status'] == 'Training':
+                                        st.info("In Training")
+                                        st.caption(f"ID: {c.get('access_key')}")
+                                    
+                                    elif c['status'] == 'Employee Confirmed':
+                                        st.success("✅ Permanent Employee")
 
                                 else:
                                     st.caption(f"Locked by {assigned}")
@@ -1670,6 +1845,93 @@ def view_interview_room():
                 if st.button("Logout"):
                     st.session_state.active_user = None
                     st.rerun()
+            return
+
+        # --- TRAINING PORTAL ---
+        if user.get('status') == 'Training':
+            st.title(f"🎓 Training Portal: {user['name']}")
+            st.caption(f"Employee ID: {user['access_key']}")
+            
+            if 'training_progress' not in user:
+                user['training_progress'] = {}
+            
+            progress = user['training_progress']
+            
+            # Calculate overall progress
+            completed_modules = len(progress)
+            total_modules = len(TRAINING_MODULES)
+            
+            # Sidebar for navigation
+            st.sidebar.title("Training Modules")
+            selected_module_id = st.sidebar.radio(
+                "Select Chapter", 
+                [m['id'] for m in TRAINING_MODULES],
+                format_func=lambda x: f"Chapter {x}: {TRAINING_MODULES[x-1]['title']} {'✅' if str(x) in progress else ''}"
+            )
+            
+            module = next((m for m in TRAINING_MODULES if m['id'] == selected_module_id), None)
+            
+            if module:
+                st.header(f"Chapter {module['id']}: {module['title']}")
+                
+                # Content
+                with st.container(border=True):
+                    st.markdown(module['content'])
+                
+                st.divider()
+                
+                # Quiz
+                if str(module['id']) in progress:
+                    score = progress[str(module['id'])]
+                    st.success(f"✅ Module Completed! Score: {score}%")
+                else:
+                    st.subheader("📝 Knowledge Check")
+                    with st.form(f"quiz_{module['id']}"):
+                        answers = {}
+                        for i, q in enumerate(module['questions']):
+                            st.markdown(f"**{i+1}. {q['q']}**")
+                            answers[i] = st.radio("Select Answer", q['options'], key=f"q_{module['id']}_{i}")
+                        
+                        if st.form_submit_button("Submit Answers"):
+                            score = 0
+                            for i, q in enumerate(module['questions']):
+                                if answers[i] == q['correct']:
+                                    score += 1
+                            
+                            percentage = int((score / len(module['questions'])) * 100)
+                            
+                            progress[str(module['id'])] = percentage
+                            user['training_progress'] = progress
+                            database.save_candidate(user)
+                            
+                            st.success(f"Quiz Submitted! Score: {percentage}%")
+                            time.sleep(1)
+                            st.rerun()
+            
+            # Check for Completion
+            if completed_modules == total_modules:
+                st.divider()
+                st.markdown("### 🏆 Training Summary")
+                
+                total_score = sum(progress.values())
+                avg_score = total_score / total_modules
+                
+                c1, c2 = st.columns(2)
+                c1.metric("Modules Completed", f"{completed_modules}/{total_modules}")
+                c2.metric("Average Score", f"{avg_score:.1f}%")
+                
+                if avg_score >= 80:
+                    st.balloons()
+                    st.success("🎉 Congratulations! You have passed the mandatory training.")
+                    if st.button("Claim Permanent Status"):
+                        user['status'] = 'Employee Confirmed'
+                        database.save_candidate(user)
+                        resend_candidate_email(user)
+                        st.rerun()
+                else:
+                    st.error("❌ You did not meet the 80% passing requirement.")
+                    st.info("Please contact HR to reset your training modules.")
+            
             return
 
         # --- OFFER STAGE ---
