@@ -23,8 +23,8 @@ const CandidateInterviewAccess: React.FC<CandidateInterviewAccessProps> = ({ can
       const candidate = candidates.find(c => c.accessKey?.toUpperCase() === accessKey.trim().toUpperCase());
       
       if (candidate) {
-        // Special case: If round 2 is scheduled, let them in regardless of aptitude time (they are passed)
-        if (candidate.status === 'Interview Scheduled') {
+        // Special case: If round 2 is scheduled or offer stage, let them in regardless of aptitude time
+        if (['Interview Scheduled', 'VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Offer Expired'].includes(candidate.status)) {
             onLogin(candidate);
             return;
         }

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Dashboard from './components/Dashboard';
+import VPDashboard from './components/VPDashboard';
 import ResumeScanner from './components/ResumeScanner';
 import InterviewSimulator from './components/InterviewSimulator';
 import ProctoredInterview from './components/ProctoredInterview';
@@ -9,12 +10,13 @@ import PracticeSelector from './components/PracticeSelector';
 import Leaderboard from './components/Leaderboard';
 import CandidatePortal from './components/CandidatePortal';
 import CandidateInterviewAccess from './components/CandidateInterviewAccess';
+import OfferLetterView from './components/OfferLetterView';
 import Login from './components/Login';
 import { Candidate } from './types';
 import { MOCK_CANDIDATES } from './constants';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<'dashboard' | 'screening' | 'interview' | 'proctored' | 'report' | 'practice' | 'leaderboard' | 'apply' | 'login' | 'candidate-login'>('apply');
+  const [view, setView] = useState<'dashboard' | 'vp-dashboard' | 'screening' | 'interview' | 'proctored' | 'report' | 'practice' | 'leaderboard' | 'apply' | 'login' | 'candidate-login' | 'offer-letter'>('apply');
   const [authToken, setAuthToken] = useState<string | null>(localStorage.getItem('hireai_token'));
   
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -30,7 +32,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const loadInitialData = async () => {
-      if (authToken && !authToken.startsWith('local-')) {
+      if (authToken && !authToken.startsWith('local-') && !authToken.startsWith('admin-bypass') && !authToken.startsWith('vp-bypass')) {
         try {
           const res = await fetch('/api/candidates', {
             headers: { 'Authorization': `Bearer ${authToken}` }
@@ -62,14 +64,22 @@ const App: React.FC = () => {
   const handleLoginSuccess = (token: string) => {
     localStorage.setItem('hireai_token', token);
     setAuthToken(token);
-    setView('dashboard');
+    if (token.startsWith('vp-')) {
+        setView('vp-dashboard');
+    } else {
+        setView('dashboard');
+    }
   };
 
   const activeCandidate = candidates.find(c => c.id === activeCandidateId) || null;
 
   const handleCandidateAccess = (candidate: Candidate) => {
     setActiveCandidateId(candidate.id);
-    setView('proctored');
+    if (['Offer Sent', 'Offer Accepted', 'Offer Expired'].includes(candidate.status)) {
+        setView('offer-letter');
+    } else {
+        setView('proctored');
+    }
   };
 
   const renderContent = () => {
@@ -84,11 +94,21 @@ const App: React.FC = () => {
           onStartScreening={() => setView('screening')}
           onUpdateCandidate={(id, updates) => setCandidates(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))}
         />;
+      case 'vp-dashboard': return <VPDashboard 
+          candidates={candidates}
+          onUpdateCandidate={(id, updates) => setCandidates(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))}
+          onLogout={handleLogout}
+      />;
       case 'apply': return <CandidatePortal onApply={(c) => setCandidates(prev => [c, ...prev])} existingCandidates={candidates} />;
       case 'screening': return <ResumeScanner onComplete={() => setView('dashboard')} existingCandidates={candidates} onResults={(newOnes) => setCandidates(prev => [...newOnes, ...prev])} />;
       case 'proctored': return activeCandidate ? <ProctoredInterview candidate={activeCandidate} onComplete={() => setView('apply')} /> : null;
       case 'interview': return <InterviewSimulator candidate={activeCandidate} onComplete={() => setView('dashboard')} />;
       case 'report': return <EvaluationReport candidate={activeCandidate} onBack={() => setView('dashboard')} />;
+      case 'offer-letter': return activeCandidate ? <OfferLetterView 
+          candidate={activeCandidate} 
+          onAccept={() => setCandidates(prev => prev.map(c => c.id === activeCandidateId ? { ...c, status: 'Offer Accepted', offerLetter: { ...c.offerLetter!, isAccepted: true } } : c))}
+          onLogout={() => setView('apply')}
+      /> : null;
       case 'practice': return <PracticeSelector onStart={(role) => {
           const dummy: Candidate = { ...MOCK_CANDIDATES[0], id: 'practice-user', name: 'Practice Mode User', role, status: 'Screening', email: 'practice@hireai.com', overallScore: 0, technicalScore: 0, communicationScore: 0, problemSolvingScore: 0, resumeSummary: '', points: 0, badges: [], skills: [], gapAnalysis: [], trainingPath: [] };
           setCandidates(prev => [...prev.filter(c => c.id !== 'practice-user'), dummy]);
@@ -110,8 +130,8 @@ const App: React.FC = () => {
             </div>
             <div className="flex bg-slate-100 p-1 rounded-xl">
                <button onClick={() => setView('apply')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${view === 'apply' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>APPLY</button>
-               <button onClick={() => setView('candidate-login')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${view === 'candidate-login' || view === 'proctored' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>CANDIDATE LOGIN</button>
-               <button onClick={() => authToken ? setView('dashboard') : setView('login')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${authToken || view === 'dashboard' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>HR PORTAL</button>
+               <button onClick={() => setView('candidate-login')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${view === 'candidate-login' || view === 'proctored' || view === 'offer-letter' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>CANDIDATE LOGIN</button>
+               <button onClick={() => authToken ? (authToken.startsWith('vp-') ? setView('vp-dashboard') : setView('dashboard')) : setView('login')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${authToken || view === 'dashboard' || view === 'vp-dashboard' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>HR PORTAL</button>
             </div>
           </div>
           <div className="flex items-center gap-4">

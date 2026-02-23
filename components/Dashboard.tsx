@@ -24,13 +24,17 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [scheduleModalOpen, setScheduleModalOpen] = useState<{candidate: Candidate, type: 'aptitude'|'interview'} | null>(null);
   const [showAddUser, setShowAddUser] = useState(false);
   const [toast, setToast] = useState<{msg: string, type: 'success', key?: string} | null>(null);
+  
+  // New state for VP Modal
+  const [vpModalOpen, setVpModalOpen] = useState<Candidate | null>(null);
+  const [noticePeriod, setNoticePeriod] = useState<'Immediate' | '1 Month' | '2 Months' | '3 Months'>('Immediate');
 
   const realCandidates = candidates.filter(c => c.id !== 'practice-user');
 
   const stats = [
     { label: 'Screening', value: realCandidates.filter(c => c.status === 'Screening').length.toString() },
     { label: 'Aptitude Pending', value: realCandidates.filter(c => c.status === 'Aptitude Scheduled').length.toString() },
-    { label: 'Round 2 Set', value: realCandidates.filter(c => c.status === 'Interview Scheduled').length.toString() }
+    { label: 'VP Approval', value: realCandidates.filter(c => c.status === 'VP Approval').length.toString() }
   ];
 
   const handleScheduleConfirm = (id: string, date: string, time: string, type: 'aptitude'|'interview', link?: string) => {
@@ -57,6 +61,25 @@ const Dashboard: React.FC<DashboardProps> = ({
     
     setScheduleModalOpen(null);
     setTimeout(() => setToast(null), 6000);
+  };
+
+  const handleSendToVP = () => {
+    if (!vpModalOpen) return;
+    onUpdateCandidate(vpModalOpen.id, {
+        status: 'VP Approval',
+        noticePeriod: noticePeriod
+    });
+    setToast({ msg: `Candidate sent to VP for approval.`, type: 'success' });
+    setVpModalOpen(null);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleSendOffer = (c: Candidate) => {
+    onUpdateCandidate(c.id, {
+        status: 'Offer Sent'
+    });
+    setToast({ msg: `Offer letter sent to ${c.name}.`, type: 'success' });
+    setTimeout(() => setToast(null), 3000);
   };
 
   const handleAddUser = async (u: string, p: string) => {
@@ -86,6 +109,35 @@ const Dashboard: React.FC<DashboardProps> = ({
           onClose={() => setScheduleModalOpen(null)}
           onSchedule={handleScheduleConfirm}
         />
+      )}
+
+      {/* VP Modal */}
+      {vpModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-slideUp">
+                <h3 className="text-xl font-black text-slate-900 mb-2">Send to VP Approval</h3>
+                <p className="text-slate-500 text-sm mb-6">Please specify the candidate's notice period before sending for executive review.</p>
+                
+                <div className="space-y-4 mb-8">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Notice Period</label>
+                    <select 
+                        value={noticePeriod} 
+                        onChange={(e) => setNoticePeriod(e.target.value as any)}
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700"
+                    >
+                        <option value="Immediate">Immediate Joiner</option>
+                        <option value="1 Month">1 Month</option>
+                        <option value="2 Months">2 Months</option>
+                        <option value="3 Months">3 Months</option>
+                    </select>
+                </div>
+
+                <div className="flex gap-3">
+                    <button onClick={() => setVpModalOpen(null)} className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button onClick={handleSendToVP} className="flex-1 py-3 rounded-xl font-black text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100">SEND TO VP</button>
+                </div>
+            </div>
+        </div>
       )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -154,6 +206,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                             c.status === 'Interview Scheduled' ? 'bg-purple-600 text-white' :
                             c.status === 'Aptitude Completed' ? (isPassed ? 'bg-green-600 text-white' : 'bg-red-100 text-red-600') :
                             c.status === 'Aptitude Scheduled' ? 'bg-orange-100 text-orange-600' :
+                            c.status === 'VP Approval' ? 'bg-amber-100 text-amber-600' :
+                            c.status === 'Offer Signed' ? 'bg-blue-100 text-blue-600' :
+                            c.status === 'Offer Sent' ? 'bg-emerald-100 text-emerald-600' :
+                            c.status === 'Offer Accepted' ? 'bg-green-600 text-white' :
                             'bg-slate-100 text-slate-600'
                           }`}>
                             {c.status === 'Aptitude Completed' && !isPassed ? 'Failed Aptitude' : c.status}
@@ -216,15 +272,46 @@ const Dashboard: React.FC<DashboardProps> = ({
                             )
                           )}
 
-                          {c.status === 'Interview Scheduled' && c.round2Link && (
-                               <a 
-                                  href={c.round2Link}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-block text-[10px] font-black bg-emerald-600 text-white px-5 py-2.5 rounded-xl hover:bg-emerald-700 shadow-xl shadow-emerald-50 transition-all active:scale-95 uppercase tracking-widest"
-                                >
-                                  Join Meeting
-                                </a>
+                          {c.status === 'Interview Scheduled' && (
+                              <div className="flex items-center justify-end gap-2">
+                                  {c.round2Link && (
+                                    <a 
+                                        href={c.round2Link}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-block text-[10px] font-black bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 shadow-xl shadow-emerald-50 transition-all active:scale-95 uppercase tracking-widest"
+                                    >
+                                        Join Meeting
+                                    </a>
+                                  )}
+                                  <button 
+                                    onClick={() => setVpModalOpen(c)}
+                                    className="text-[10px] font-black bg-slate-900 text-white px-4 py-2.5 rounded-xl hover:bg-slate-800 shadow-xl transition-all active:scale-95 uppercase tracking-widest"
+                                  >
+                                    Pass & Send to VP
+                                  </button>
+                              </div>
+                          )}
+
+                          {c.status === 'VP Approval' && (
+                              <span className="text-[10px] font-bold text-amber-500 italic">Pending VP Review...</span>
+                          )}
+
+                          {c.status === 'Offer Signed' && (
+                              <button 
+                                onClick={() => handleSendOffer(c)}
+                                className="text-[10px] font-black bg-green-600 text-white px-5 py-2.5 rounded-xl hover:bg-green-700 shadow-xl shadow-green-50 transition-all active:scale-95 uppercase tracking-widest"
+                              >
+                                Send Offer Letter
+                              </button>
+                          )}
+                          
+                          {c.status === 'Offer Sent' && (
+                              <span className="text-[10px] font-bold text-emerald-500 italic">Offer Sent</span>
+                          )}
+                          
+                          {c.status === 'Offer Accepted' && (
+                              <span className="text-[10px] font-black text-green-600">OFFER ACCEPTED</span>
                           )}
                         </td>
                       </tr>

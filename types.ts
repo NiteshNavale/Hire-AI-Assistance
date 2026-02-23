@@ -1,5 +1,12 @@
 
-export type CandidateStatus = 'Screening' | 'Aptitude Scheduled' | 'Aptitude Completed' | 'Interview Scheduled' | 'Hired' | 'Rejected';
+export type CandidateStatus = 'Screening' | 'Aptitude Scheduled' | 'Aptitude Completed' | 'Interview Scheduled' | 'VP Approval' | 'Offer Signed' | 'Offer Sent' | 'Offer Accepted' | 'Offer Expired' | 'Hired' | 'Rejected';
+
+export interface OfferLetter {
+  signedBy: string;
+  dateSigned: string;
+  expiryDate: string;
+  isAccepted?: boolean;
+}
 
 export interface Badge {
   id: string;
@@ -41,6 +48,10 @@ export interface Candidate {
   round2Date?: string;
   round2Time?: string;
   round2Link?: string;
+
+  // VP & Offer Details
+  noticePeriod?: 'Immediate' | '1 Month' | '2 Months' | '3 Months';
+  offerLetter?: OfferLetter;
 
   isDuplicate?: boolean;
   duplicateOf?: string;

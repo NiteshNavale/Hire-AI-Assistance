@@ -6,6 +6,7 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+  const [role, setRole] = useState<'HR' | 'VP'>('HR');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,14 +20,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     // ---------------------------------------------------------
     // CLIENT-SIDE AUTHENTICATION (Database Bypass)
     // ---------------------------------------------------------
-    // We check credentials locally first. This guarantees that 
-    // the HR Portal is accessible even if the backend is down 
-    // or the database is locked.
-    if (username === 'admin' && password === 'admin123') {
+    if (role === 'HR' && username === 'admin' && password === 'admin123') {
         const token = 'admin-bypass-' + Date.now();
-        // Short artificial delay for better UX
         setTimeout(() => {
-            onLoginSuccess(token);
+            onLoginSuccess(token); // HR Token
+        }, 600);
+        return;
+    }
+
+    if (role === 'VP' && username === 'vp' && password === 'vp123') {
+        const token = 'vp-bypass-' + Date.now();
+        setTimeout(() => {
+            onLoginSuccess(token); // VP Token
         }, 600);
         return;
     }
@@ -39,7 +44,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, role }),
         signal: controller.signal
       });
       
@@ -67,7 +72,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (err: any) {
       clearTimeout(timeoutId);
       console.log("Backend login failed:", err);
-      setError('Connection failed. Please use admin/admin123.');
+      setError(`Invalid ${role} credentials.`);
     } finally {
       setIsLoading(false);
     }
@@ -79,8 +84,25 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-2xl font-black mx-auto mb-4">
           H
         </div>
-        <h2 className="text-2xl font-black text-slate-900">HR Portal Login</h2>
+        <h2 className="text-2xl font-black text-slate-900">{role} Portal Login</h2>
         <p className="text-slate-500 text-sm mt-1">Authorized Access Only</p>
+      </div>
+
+      <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
+        <button 
+            type="button"
+            onClick={() => setRole('HR')} 
+            className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${role === 'HR' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
+        >
+            HR Admin
+        </button>
+        <button 
+            type="button"
+            onClick={() => setRole('VP')} 
+            className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${role === 'VP' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
+        >
+            Vice President
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -94,7 +116,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             onChange={(e) => setUsername(e.target.value)}
             disabled={isLoading}
             className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 font-medium"
-            placeholder="admin"
+            placeholder={role === 'HR' ? "admin" : "vp"}
           />
         </div>
         <div>
@@ -135,7 +157,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
       <div className="mt-8 pt-8 border-t border-slate-100 text-center">
         <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest leading-relaxed">
-          Default Admin: <strong>admin</strong> / <strong>admin123</strong>
+          {role === 'HR' ? 'Default Admin: admin / admin123' : 'Default VP: vp / vp123'}
         </p>
       </div>
     </div>
