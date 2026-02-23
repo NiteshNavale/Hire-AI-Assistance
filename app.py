@@ -1981,6 +1981,25 @@ def view_interview_room():
                     if m['id'] not in unlocked_ids:
                         st.sidebar.caption(f"Chapter {m['id']}: {m['title']}")
 
+            # --- LEADERBOARD IN SIDEBAR ---
+            st.sidebar.divider()
+            st.sidebar.markdown("### 🏆 Leaderboard")
+            
+            all_cands = database.get_candidates()
+            leaderboard = []
+            for c in all_cands:
+                prog = c.get('training_progress', {})
+                if prog:
+                    avg = sum(prog.values()) / len(TRAINING_MODULES) if len(TRAINING_MODULES) > 0 else 0
+                    leaderboard.append({'name': c['name'], 'score': avg})
+            
+            leaderboard.sort(key=lambda x: x['score'], reverse=True)
+            top_3 = leaderboard[:3]
+            
+            for i, p in enumerate(top_3):
+                prefix = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
+                st.sidebar.markdown(f"{prefix} **{p['name']}**")
+                st.sidebar.caption(f"Score: {p['score']:.1f}%")
             
             # Use the active ID from state, which is synced with radio
             module = next((m for m in TRAINING_MODULES if m['id'] == st.session_state.training_active_id), None)
@@ -2235,265 +2254,318 @@ def view_interview_room():
                 st.caption("HR has been notified of your readiness.")
             return
 
-        st.title(f"Aptitude Portal: {user['name']}")
-        
-        if not user.get('aptitudeDate'):
-            st.info("Your exam has not been scheduled by HR yet. Please check back later.")
-            return
-
-        scheduled_datetime_str = f"{user['aptitudeDate']} {user['aptitudeTime']}"
-        scheduled_dt = datetime.strptime(scheduled_datetime_str, "%Y-%m-%d %H:%M")
-        now = datetime.now()
-        
-        if now < scheduled_dt:
-            diff = scheduled_dt - now
-            mins, secs = divmod(diff.seconds, 60)
-            hours, mins = divmod(mins, 60)
+        # --- EMPLOYEE CONFIRMED STAGE ---
+        if user.get('status') == 'Employee Confirmed':
+            st.title(f"👋 Welcome, {user['name']}!")
+            st.success("You are a permanent employee.")
+            st.caption(f"Employee ID: {user['access_key']}")
             
-            with st.container(border=True):
-                st.warning("Exam Locked")
-                st.markdown(f"### Starts in: {diff.days}d {hours}h {mins}m")
-                st.write(f"Scheduled for: **{scheduled_datetime_str}**")
-                if st.button("Refresh Timer"):
-                    st.rerun()
+            # Show Leaderboard
+            st.markdown("### 🏆 Training Leaderboard")
+            all_cands = database.get_candidates()
+            leaderboard = []
+            
+            for c in all_cands:
+                progress = c.get('training_progress', {})
+                if progress:
+                    # Calculate average
+                    avg = sum(progress.values()) / len(TRAINING_MODULES) if len(TRAINING_MODULES) > 0 else 0
+                    leaderboard.append({
+                        'name': c['name'],
+                        'score': avg,
+                        'id': c['id']
+                    })
+            
+            # Sort descending
+            leaderboard.sort(key=lambda x: x['score'], reverse=True)
+            
+            top_3 = leaderboard[:3]
+            
+            for i, p in enumerate(top_3):
+                prefix = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
+                st.markdown(f"**{prefix} {p['name']}** - {p['score']:.1f}%")
+            
             return
 
-        if user.get('aptitude_score') is not None:
-             with st.container(border=True):
-                 st.header("Exam Results")
-                 score = user['aptitude_score']
-                 is_passed = score >= 50
-                 col1, col2 = st.columns(2)
-                 with col1:
-                     st.metric("Final Score", f"{score}%")
-                 with col2:
-                     if is_passed:
-                         st.success("Result: PASS")
-                         st.caption("You have qualified for the next round.")
-                     else:
-                         st.error("Result: FAIL")
-                         st.caption("You did not meet the required threshold.")
-                 
-                 st.divider()
-                 st.subheader("Detailed Review")
-                 
-                 details = user.get('aptitude_details')
-                 if details:
-                     questions_data = details.get('questions', [])
-                     answers_data = details.get('answers', {})
-                     answers_data = {int(k): v for k, v in answers_data.items()}
-
-                     for i, q in enumerate(questions_data):
-                         user_selected = answers_data.get(i)
-                         correct_option = q['options'][q['correct_index']]
-                         is_correct = user_selected == correct_option
-                         
-                         with st.expander(f"Q{i+1}: {q['question']} - {'✅' if is_correct else '❌'}", expanded=not is_correct):
-                             st.write(f"**Category:** {q['category']}")
-                             for opt in q['options']:
-                                 prefix = "⚪ "
-                                 if opt == correct_option: prefix = "✅ "
-                                 elif opt == user_selected and not is_correct: prefix = "❌ "
-                                 elif opt == user_selected and is_correct: prefix = "✅ "
-                                     
-                                 if opt == correct_option:
-                                     st.markdown(f":green[**{prefix}{opt}**] (Correct Answer)")
-                                 elif opt == user_selected:
-                                     st.markdown(f":red[**{prefix}{opt}**] (Your Answer)")
-                                 else:
-                                     st.markdown(f"{prefix}{opt}")
-                 else:
-                     st.info("Detailed results not available for this session.")
-             return
-
-        # --- TIMER LOGIC ---
-        test_duration = get_test_duration()
+        # --- APTITUDE PORTAL (Only for Junior Candidates or Scheduled) ---
+        # Logic: If experience < 2 years OR status is explicitly Aptitude Scheduled/Screening
+        # And NOT if they are in later stages (which are handled above)
         
-        if 'aptitude_questions' not in st.session_state:
-            with st.container(border=True):
-                st.subheader("Assessment Instructions")
-                st.markdown(f"""
-                * This exam consists of **20 Multiple Choice Questions**.
-                * You have **{test_duration} minutes** to complete the test.
-                * Once you start, the timer will not stop.
-                * Answers will be automatically submitted when time runs out.
-                """)
+        is_junior = False
+        try:
+            exp_val = float(str(user.get('experience', 0)).split()[0]) # Handle "2 years" string if present
+            if exp_val < 2:
+                is_junior = True
+        except:
+            pass # Default to False if parsing fails
+            
+        should_show_aptitude = is_junior or user.get('status') in ['Screening', 'Aptitude Scheduled']
+        
+        if should_show_aptitude:
+            st.title(f"Aptitude Portal: {user['name']}")
+            
+            if not user.get('aptitudeDate'):
+                st.info("Your exam has not been scheduled by HR yet. Please check back later.")
+                return
+    
+            scheduled_datetime_str = f"{user['aptitudeDate']} {user['aptitudeTime']}"
+            scheduled_dt = datetime.strptime(scheduled_datetime_str, "%Y-%m-%d %H:%M")
+            now = datetime.now()
+            
+            if now < scheduled_dt:
+                diff = scheduled_dt - now
+                mins, secs = divmod(diff.seconds, 60)
+                hours, mins = divmod(mins, 60)
                 
-                if st.button("GENERATE & START EXAM", type="primary"):
-                    with st.spinner(f"AI is generating a unique test for {user['role']} role..."):
-                        st.session_state.aptitude_questions = generate_aptitude_questions(user['role'])
-                        st.session_state.exam_start_time = datetime.now()
+                with st.container(border=True):
+                    st.warning("Exam Locked")
+                    st.markdown(f"### Starts in: {diff.days}d {hours}h {mins}m")
+                    st.write(f"Scheduled for: **{scheduled_datetime_str}**")
+                    if st.button("Refresh Timer"):
                         st.rerun()
-        else:
-            # -----------------------------------------------
-            # REAL-TIME JS TIMER & CHEAT DETECTION INJECTION
-            # -----------------------------------------------
+                return
+    
+            if user.get('aptitude_score') is not None:
+                 with st.container(border=True):
+                     st.header("Exam Results")
+                     score = user['aptitude_score']
+                     is_passed = score >= 50
+                     col1, col2 = st.columns(2)
+                     with col1:
+                         st.metric("Final Score", f"{score}%")
+                     with col2:
+                         if is_passed:
+                             st.success("Result: PASS")
+                             st.caption("You have qualified for the next round.")
+                         else:
+                             st.error("Result: FAIL")
+                             st.caption("You did not meet the required threshold.")
+                     
+                     st.divider()
+                     st.subheader("Detailed Review")
+                     
+                     details = user.get('aptitude_details')
+                     if details:
+                         questions_data = details.get('questions', [])
+                         answers_data = details.get('answers', {})
+                         answers_data = {int(k): v for k, v in answers_data.items()}
+    
+                         for i, q in enumerate(questions_data):
+                             user_selected = answers_data.get(i)
+                             correct_option = q['options'][q['correct_index']]
+                             is_correct = user_selected == correct_option
+                             
+                             with st.expander(f"Q{i+1}: {q['question']} - {'✅' if is_correct else '❌'}", expanded=not is_correct):
+                                 st.write(f"**Category:** {q['category']}")
+                                 for opt in q['options']:
+                                     prefix = "⚪ "
+                                     if opt == correct_option: prefix = "✅ "
+                                     elif opt == user_selected and not is_correct: prefix = "❌ "
+                                     elif opt == user_selected and is_correct: prefix = "✅ "
+                                         
+                                     if opt == correct_option:
+                                         st.markdown(f":green[**{prefix}{opt}**] (Correct Answer)")
+                                     elif opt == user_selected:
+                                         st.markdown(f":red[**{prefix}{opt}**] (Your Answer)")
+                                     else:
+                                         st.markdown(f"{prefix}{opt}")
+                     else:
+                         st.info("Detailed results not available for this session.")
+                 return
+    
+            # --- TIMER LOGIC ---
+            test_duration = get_test_duration()
             
-            # 1. Hidden Streamlit Buttons (Triggers)
-            col_hidden = st.columns(1)[0]
-            with col_hidden:
-                cheat_detected = st.button("CHEAT_TRIGGER", key="btn_cheat")
-                time_up_detected = st.button("TIME_UP_TRIGGER", key="btn_time_up")
-
-            # 2. Logic to handle the triggers immediately
-            if cheat_detected:
-                user['status'] = 'Rejected'
-                user['rejection_reason'] = 'Academic Dishonesty Detected (Tab Switching)'
-                user['archived'] = True 
-                database.save_candidate(user)
-                st.session_state.active_user = user # Update session
-                st.rerun()
-
-            # 3. Calculate Time Remaining for JS init
-            elapsed_seconds = (datetime.now() - st.session_state.exam_start_time).total_seconds()
-            remaining_seconds = int((test_duration * 60) - elapsed_seconds)
-            
-            # 4. Inject JS logic to render timer in PARENT window and hide buttons
-            js_code = f"""
-            <script>
-                // 1. Inject Timer into Parent Body (to float over everything)
-                const parentBody = window.parent.document.body;
-                let timerBox = window.parent.document.getElementById('custom-timer-box');
-                
-                if (!timerBox) {{
-                    timerBox = document.createElement('div');
-                    timerBox.id = 'custom-timer-box';
-                    timerBox.style.cssText = "position: fixed; top: 60px; right: 20px; background-color: #e0f2fe; border: 2px solid #3b82f6; color: #1e3a8a; padding: 15px 25px; border-radius: 12px; font-weight: 900; font-size: 20px; z-index: 999999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;";
-                    timerBox.innerHTML = '<span id="parent-time-display">Loading...</span><span style="font-size: 10px; color: #ef4444; text-transform: uppercase; display: block; margin-top: 4px;">⚠️ Do Not Switch Tabs</span>';
-                    parentBody.appendChild(timerBox);
-                }}
-
-                // 2. Timer Logic
-                let timeLeft = {remaining_seconds};
-                const timerDisplay = timerBox.querySelector('#parent-time-display');
-                
-                const interval = setInterval(() => {{
-                    if (timeLeft <= 0) {{
-                        clearInterval(interval);
-                        if (timerDisplay) timerDisplay.innerText = "00:00";
-                        
-                        // Trigger Time Up Button
-                        const buttons = window.parent.document.querySelectorAll('button');
-                        for (const btn of buttons) {{
-                            if (btn.innerText.includes("TIME_UP_TRIGGER")) {{
-                                btn.click();
-                                break;
-                            }}
-                        }}
-                    }} else {{
-                        const m = Math.floor(timeLeft / 60);
-                        const s = Math.floor(timeLeft % 60);
-                        if (timerDisplay) timerDisplay.innerText = `${{m}}:${{s < 10 ? '0' : ''}}${{s}}`;
-                        timeLeft--;
-                    }}
-                }}, 1000);
-
-                // 3. Anti-Cheat Logic (Visibility API on Parent Document)
-                window.parent.document.addEventListener("visibilitychange", () => {{
-                    if (window.parent.document.hidden) {{
-                        const buttons = window.parent.document.querySelectorAll('button');
-                        for (const btn of buttons) {{
-                            if (btn.innerText.includes("CHEAT_TRIGGER")) {{
-                                btn.click();
-                                break;
-                            }}
-                        }}
-                    }}
-                }});
-
-                // 4. Hide Trigger Buttons actively
-                const hideButtons = () => {{
-                    const buttons = window.parent.document.querySelectorAll('button');
-                    for (const btn of buttons) {{
-                        if (btn.innerText.includes("CHEAT_TRIGGER") || btn.innerText.includes("TIME_UP_TRIGGER")) {{
-                            btn.style.display = 'none';
-                        }}
-                    }}
-                }};
-                
-                // Run periodically to catch re-renders
-                setInterval(hideButtons, 500);
-                hideButtons();
-
-            </script>
-            """
-            components.html(js_code, height=0)
-
-            questions = st.session_state.aptitude_questions
-            
-            # --- AUTO SUBMIT OR MANUAL SUBMIT LOGIC ---
-            # Also check server-side time just in case JS fails
-            is_expired_server = remaining_seconds <= 0
-            
-            if is_expired_server or time_up_detected:
-                st.warning("⏰ Time is up! Submitting your answers automatically...")
-                submit_clicked = True
+            if 'aptitude_questions' not in st.session_state:
+                with st.container(border=True):
+                    st.subheader("Assessment Instructions")
+                    st.markdown(f"""
+                    * This exam consists of **20 Multiple Choice Questions**.
+                    * You have **{test_duration} minutes** to complete the test.
+                    * Once you start, the timer will not stop.
+                    * Answers will be automatically submitted when time runs out.
+                    """)
+                    
+                    if st.button("GENERATE & START EXAM", type="primary"):
+                        with st.spinner(f"AI is generating a unique test for {user['role']} role..."):
+                            st.session_state.aptitude_questions = generate_aptitude_questions(user['role'])
+                            st.session_state.exam_start_time = datetime.now()
+                            st.rerun()
             else:
-                with st.form("exam_form"):
-                    for i, q in enumerate(questions):
-                        st.markdown(f"**{i+1}. {q['question']}**")
-                        st.caption(f"Category: {q['category']}")
+                # -----------------------------------------------
+                # REAL-TIME JS TIMER & CHEAT DETECTION INJECTION
+                # -----------------------------------------------
+                
+                # 1. Hidden Streamlit Buttons (Triggers)
+                col_hidden = st.columns(1)[0]
+                with col_hidden:
+                    cheat_detected = st.button("CHEAT_TRIGGER", key="btn_cheat")
+                    time_up_detected = st.button("TIME_UP_TRIGGER", key="btn_time_up")
+    
+                # 2. Logic to handle the triggers immediately
+                if cheat_detected:
+                    user['status'] = 'Rejected'
+                    user['rejection_reason'] = 'Academic Dishonesty Detected (Tab Switching)'
+                    user['archived'] = True 
+                    database.save_candidate(user)
+                    st.session_state.active_user = user # Update session
+                    st.rerun()
+    
+                # 3. Calculate Time Remaining for JS init
+                elapsed_seconds = (datetime.now() - st.session_state.exam_start_time).total_seconds()
+                remaining_seconds = int((test_duration * 60) - elapsed_seconds)
+                
+                # 4. Inject JS logic to render timer in PARENT window and hide buttons
+                js_code = f"""
+                <script>
+                    // 1. Inject Timer into Parent Body (to float over everything)
+                    const parentBody = window.parent.document.body;
+                    let timerBox = window.parent.document.getElementById('custom-timer-box');
+                    
+                    if (!timerBox) {{
+                        timerBox = document.createElement('div');
+                        timerBox.id = 'custom-timer-box';
+                        timerBox.style.cssText = "position: fixed; top: 60px; right: 20px; background-color: #e0f2fe; border: 2px solid #3b82f6; color: #1e3a8a; padding: 15px 25px; border-radius: 12px; font-weight: 900; font-size: 20px; z-index: 999999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;";
+                        timerBox.innerHTML = '<span id="parent-time-display">Loading...</span><span style="font-size: 10px; color: #ef4444; text-transform: uppercase; display: block; margin-top: 4px;">⚠️ Do Not Switch Tabs</span>';
+                        parentBody.appendChild(timerBox);
+                    }}
+    
+                    // 2. Timer Logic
+                    let timeLeft = {remaining_seconds};
+                    const timerDisplay = timerBox.querySelector('#parent-time-display');
+                    
+                    const interval = setInterval(() => {{
+                        if (timeLeft <= 0) {{
+                            clearInterval(interval);
+                            if (timerDisplay) timerDisplay.innerText = "00:00";
+                            
+                            // Trigger Time Up Button
+                            const buttons = window.parent.document.querySelectorAll('button');
+                            for (const btn of buttons) {{
+                                if (btn.innerText.includes("TIME_UP_TRIGGER")) {{
+                                    btn.click();
+                                    break;
+                                }}
+                            }}
+                        }} else {{
+                            const m = Math.floor(timeLeft / 60);
+                            const s = Math.floor(timeLeft % 60);
+                            if (timerDisplay) timerDisplay.innerText = `${{m}}:${{s < 10 ? '0' : ''}}${{s}}`;
+                            timeLeft--;
+                        }}
+                    }}, 1000);
+    
+                    // 3. Anti-Cheat Logic (Visibility API on Parent Document)
+                    window.parent.document.addEventListener("visibilitychange", () => {{
+                        if (window.parent.document.hidden) {{
+                            const buttons = window.parent.document.querySelectorAll('button');
+                            for (const btn of buttons) {{
+                                if (btn.innerText.includes("CHEAT_TRIGGER")) {{
+                                    btn.click();
+                                    break;
+                                }}
+                            }}
+                        }}
+                    }});
+    
+                    // 4. Hide Trigger Buttons actively
+                    const hideButtons = () => {{
+                        const buttons = window.parent.document.querySelectorAll('button');
+                        for (const btn of buttons) {{
+                            if (btn.innerText.includes("CHEAT_TRIGGER") || btn.innerText.includes("TIME_UP_TRIGGER")) {{
+                                btn.style.display = 'none';
+                            }}
+                        }}
+                    }};
+                    
+                    // Run periodically to catch re-renders
+                    setInterval(hideButtons, 500);
+                    hideButtons();
+    
+                </script>
+                """
+                components.html(js_code, height=0)
+    
+                questions = st.session_state.aptitude_questions
+                
+                # --- AUTO SUBMIT OR MANUAL SUBMIT LOGIC ---
+                # Also check server-side time just in case JS fails
+                is_expired_server = remaining_seconds <= 0
+                
+                if is_expired_server or time_up_detected:
+                    st.warning("⏰ Time is up! Submitting your answers automatically...")
+                    submit_clicked = True
+                else:
+                    with st.form("exam_form"):
+                        for i, q in enumerate(questions):
+                            st.markdown(f"**{i+1}. {q['question']}**")
+                            st.caption(f"Category: {q['category']}")
+                            
+                            st.radio(
+                                "Select Answer",
+                                q['options'], 
+                                key=f"q_{i}", 
+                                label_visibility="collapsed"
+                            )
+                            st.divider()
                         
-                        st.radio(
-                            "Select Answer",
-                            q['options'], 
-                            key=f"q_{i}", 
-                            label_visibility="collapsed"
-                        )
-                        st.divider()
+                        submit_clicked = st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary")
+                
+                # Trigger submission if clicked OR if time expired
+                if submit_clicked:
+                    # Remove timer from DOM on submit
+                    components.html("""
+                        <script>
+                            const timerBox = window.parent.document.getElementById('custom-timer-box');
+                            if (timerBox) timerBox.remove();
+                        </script>
+                    """, height=0)
+    
+                    score = 0
+                    user_answers = {}
                     
-                    submit_clicked = st.form_submit_button("SUBMIT FINAL ANSWERS", type="primary")
-            
-            # Trigger submission if clicked OR if time expired
-            if submit_clicked:
-                # Remove timer from DOM on submit
-                components.html("""
-                    <script>
-                        const timerBox = window.parent.document.getElementById('custom-timer-box');
-                        if (timerBox) timerBox.remove();
-                    </script>
-                """, height=0)
-
-                score = 0
-                user_answers = {}
-                
-                # Retrieve answers from session state
-                for i, q in enumerate(questions):
-                    selected_option = st.session_state.get(f"q_{i}")
-                    user_answers[i] = selected_option
+                    # Retrieve answers from session state
+                    for i, q in enumerate(questions):
+                        selected_option = st.session_state.get(f"q_{i}")
+                        user_answers[i] = selected_option
+                        
+                        try:
+                            if selected_option:
+                                selected_index = q['options'].index(selected_option)
+                                if selected_index == q['correct_index']:
+                                    score += 1
+                        except:
+                            pass
                     
-                    try:
-                        if selected_option:
-                            selected_index = q['options'].index(selected_option)
-                            if selected_index == q['correct_index']:
-                                score += 1
-                    except:
-                        pass
-                
-                final_percentage = int((score / len(questions)) * 100)
-                
-                details = {
-                    "questions": questions,
-                    "answers": user_answers 
-                }
-                
-                # Update Candidate in DB FIRST so status is correct for resend function
-                user['aptitude_score'] = final_percentage
-                user['aptitude_details'] = details
-                user['status'] = 'Aptitude Completed'
-                database.save_candidate(user)
-                
-                # Resend Email (Passed/Failed) using helper
-                email_sent, email_msg = resend_candidate_email(user)
+                    final_percentage = int((score / len(questions)) * 100)
+                    
+                    details = {
+                        "questions": questions,
+                        "answers": user_answers 
+                    }
+                    
+                    # Update Candidate in DB FIRST so status is correct for resend function
+                    user['aptitude_score'] = final_percentage
+                    user['aptitude_details'] = details
+                    user['status'] = 'Aptitude Completed'
+                    database.save_candidate(user)
+                    
+                    # Resend Email (Passed/Failed) using helper
+                    email_sent, email_msg = resend_candidate_email(user)
+    
+                    user['email_status'] = "Sent" if email_sent else "Failed"
+                    user['email_error'] = email_msg if not email_sent else None
+                    database.save_candidate(user)
+                    
+                    st.session_state.active_user = user
+                    
+                    st.balloons()
+                    st.rerun()
+        else:
+            # Fallback for other statuses (e.g. just waiting)
+            st.info(f"Current Status: {user.get('status')}")
+            st.write("Please wait for HR to update your status.")
 
-                user['email_status'] = "Sent" if email_sent else "Failed"
-                user['email_error'] = email_msg if not email_sent else None
-                database.save_candidate(user)
-                
-                st.session_state.active_user = user
-                
-                st.balloons()
-                st.rerun()
 
 # --- MAIN APP ROUTING ---
 nav_choice = sidebar_nav()
