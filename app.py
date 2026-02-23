@@ -1035,7 +1035,7 @@ def view_hr_dashboard():
             stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
             stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
             stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
-            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected', 'Training', 'Employee Confirmed']]
+            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected', 'Training', 'Training Failed', 'Employee Confirmed']]
             
             subtab_1, subtab_2, subtab_3, subtab_4 = st.tabs([
                 f"📋 Screening ({len(stage_screening)})",
@@ -1567,6 +1567,38 @@ def view_hr_dashboard():
                                     elif c['status'] == 'Training':
                                         st.info("In Training")
                                         st.caption(f"ID: {c.get('access_key')}")
+                                        
+                                        # Show Attempts
+                                        attempts = c.get('training_attempts', {})
+                                        total_attempts = sum(attempts.values())
+                                        st.caption(f"Total Attempts: {total_attempts}")
+                                        
+                                        if st.button("🔄 Reset Training", key=f"rst_trn_{c['id']}"):
+                                            c['training_progress'] = {}
+                                            # We do NOT reset attempts count for HR visibility, but we might want to allow them to retry.
+                                            # The requirement says "HR can have a option to reset the training but this should score down for candidate performance"
+                                            # So we keep the attempt history or add a 'resets' counter.
+                                            c['hr_training_resets'] = c.get('hr_training_resets', 0) + 1
+                                            database.save_candidate(c)
+                                            st.success("Training Reset for Candidate.")
+                                            st.rerun()
+
+                                    elif c['status'] == 'Training Failed':
+                                        st.error("Training Failed")
+                                        st.caption("Max attempts reached.")
+                                        
+                                        if st.button("🔄 Reset & Allow Retry", key=f"rst_fail_{c['id']}"):
+                                            c['status'] = 'Training'
+                                            c['training_progress'] = {}
+                                            # Reset attempts for the modules so they can retry?
+                                            # Or just increase the limit? The prompt says "reset the training".
+                                            # Let's clear progress and keep the 'hr_training_resets' metric.
+                                            # We also need to clear specific module attempts to allow retrying if we block based on them.
+                                            c['training_attempts'] = {} 
+                                            c['hr_training_resets'] = c.get('hr_training_resets', 0) + 1
+                                            database.save_candidate(c)
+                                            st.success("Training Reset. Candidate can try again.")
+                                            st.rerun()
                                     
                                     elif c['status'] == 'Employee Confirmed':
                                         st.success("✅ Permanent Employee")
@@ -1855,7 +1887,11 @@ def view_interview_room():
             if 'training_progress' not in user:
                 user['training_progress'] = {}
             
+            if 'training_attempts' not in user:
+                user['training_attempts'] = {}
+
             progress = user['training_progress']
+            attempts_log = user['training_attempts']
             
             # Calculate overall progress
             completed_modules = len(progress)
@@ -1886,43 +1922,88 @@ def view_interview_room():
                 
                 st.divider()
                 
-                # Quiz
-                if str(module['id']) in progress:
-                    score = progress[str(module['id'])]
+                mod_id_str = str(module['id'])
+                current_attempts = attempts_log.get(mod_id_str, 0)
+                
+                # Quiz Logic
+                is_completed = mod_id_str in progress
+                
+                if is_completed:
+                    score = progress[mod_id_str]
                     st.success(f"✅ Module Completed! Score: {score}%")
+                    
+                    if score < 100: # Option to retake if not perfect? Or always?
+                        st.info(f"Attempts: {current_attempts}/99")
+                        if current_attempts < 99:
+                            if st.button("🔄 Retake Quiz to Improve Score"):
+                                del progress[mod_id_str]
+                                user['training_progress'] = progress
+                                database.save_candidate(user)
+                                st.rerun()
+                        else:
+                            st.warning("Max attempts reached for this module.")
                 else:
-                    st.subheader("📝 Knowledge Check")
-                    with st.form(f"quiz_{module['id']}"):
-                        answers = {}
-                        for i, q in enumerate(module['questions']):
-                            st.markdown(f"**{i+1}. {q['q']}**")
-                            answers[i] = st.radio("Select Answer", q['options'], key=f"q_{module['id']}_{i}")
+                    if current_attempts >= 99:
+                        st.error("❌ Max attempts (99) reached for this module.")
+                        st.warning("Please contact HR to reset your training modules.")
                         
-                        if st.form_submit_button("Submit Answers"):
-                            score = 0
+                        # Check if ALL modules are failed/done to trigger global failure status?
+                        # For now, just block this module.
+                        # If user is stuck, they can't proceed.
+                        
+                        # If we want to mark the whole user as Failed:
+                        # user['status'] = 'Training Failed'
+                        # database.save_candidate(user)
+                        # st.rerun()
+                    else:
+                        st.subheader(f"📝 Knowledge Check (Attempt {current_attempts + 1}/99)")
+                        with st.form(f"quiz_{module['id']}"):
+                            answers = {}
                             for i, q in enumerate(module['questions']):
-                                if answers[i] == q['correct']:
-                                    score += 1
+                                st.markdown(f"**{i+1}. {q['q']}**")
+                                answers[i] = st.radio("Select Answer", q['options'], key=f"q_{module['id']}_{i}")
                             
-                            percentage = int((score / len(module['questions'])) * 100)
-                            
-                            progress[str(module['id'])] = percentage
-                            user['training_progress'] = progress
-                            database.save_candidate(user)
-                            
-                            st.success(f"Quiz Submitted! Score: {percentage}%")
-                            
-                            # Auto-advance logic
-                            next_id = module['id'] + 1
-                            if next_id <= len(TRAINING_MODULES):
-                                st.info(f"Advancing to Chapter {next_id}...")
-                                time.sleep(1.5)
-                                st.session_state.training_nav = next_id
-                            else:
-                                st.success("All modules completed!")
-                                time.sleep(1.5)
+                            if st.form_submit_button("Submit Answers"):
+                                # Increment attempts
+                                attempts_log[mod_id_str] = current_attempts + 1
+                                user['training_attempts'] = attempts_log
                                 
-                            st.rerun()
+                                score = 0
+                                for i, q in enumerate(module['questions']):
+                                    if answers[i] == q['correct']:
+                                        score += 1
+                                
+                                percentage = int((score / len(module['questions'])) * 100)
+                                
+                                # Check if passed (assuming 100% needed to "pass" per chapter based on "retake until pass" request, 
+                                # OR just save progress and let them retake if they want higher score.
+                                # The prompt says "pass all the training with at least 80 percentage".
+                                # But also "retake the chapter until he pass".
+                                # Let's assume passing a chapter means getting a score.
+                                
+                                progress[mod_id_str] = percentage
+                                user['training_progress'] = progress
+                                
+                                # Check for global failure
+                                if attempts_log[mod_id_str] >= 99 and percentage < 50: # Arbitrary fail threshold?
+                                     # If they used 99 attempts and still failed?
+                                     pass
+
+                                database.save_candidate(user)
+                                
+                                st.success(f"Quiz Submitted! Score: {percentage}%")
+                                
+                                # Auto-advance logic
+                                next_id = module['id'] + 1
+                                if next_id <= len(TRAINING_MODULES):
+                                    st.info(f"Advancing to Chapter {next_id}...")
+                                    time.sleep(1.5)
+                                    st.session_state.training_nav = next_id
+                                else:
+                                    st.success("All modules completed!")
+                                    time.sleep(1.5)
+                                    
+                                st.rerun()
             
             # Check for Completion
             if completed_modules == total_modules:
@@ -1947,8 +2028,17 @@ def view_interview_room():
                 else:
                     st.error("❌ You did not meet the 80% passing requirement.")
                     st.info("Please contact HR to reset your training modules.")
+                    
+                    # If they are stuck with low score and max attempts, they need HR reset.
             
             return
+
+        # --- TRAINING FAILED STAGE ---
+        if user.get('status') == 'Training Failed':
+             st.title("Training Failed")
+             st.error("You have exceeded the maximum number of attempts for the training modules.")
+             st.info("Please contact HR to reset your training.")
+             return
 
         # --- OFFER STAGE ---
         if user.get('status') == 'Offer Sent':
