@@ -1863,10 +1863,16 @@ def view_interview_room():
             
             # Sidebar for navigation
             st.sidebar.title("Training Modules")
+            
+            # Initialize navigation state if not present
+            if "training_nav" not in st.session_state:
+                st.session_state.training_nav = 1
+
             selected_module_id = st.sidebar.radio(
                 "Select Chapter", 
                 [m['id'] for m in TRAINING_MODULES],
-                format_func=lambda x: f"Chapter {x}: {TRAINING_MODULES[x-1]['title']} {'✅' if str(x) in progress else ''}"
+                format_func=lambda x: f"Chapter {x}: {TRAINING_MODULES[x-1]['title']} {'✅' if str(x) in progress else ''}",
+                key="training_nav"
             )
             
             module = next((m for m in TRAINING_MODULES if m['id'] == selected_module_id), None)
@@ -1905,7 +1911,17 @@ def view_interview_room():
                             database.save_candidate(user)
                             
                             st.success(f"Quiz Submitted! Score: {percentage}%")
-                            time.sleep(1)
+                            
+                            # Auto-advance logic
+                            next_id = module['id'] + 1
+                            if next_id <= len(TRAINING_MODULES):
+                                st.info(f"Advancing to Chapter {next_id}...")
+                                time.sleep(1.5)
+                                st.session_state.training_nav = next_id
+                            else:
+                                st.success("All modules completed!")
+                                time.sleep(1.5)
+                                
                             st.rerun()
             
             # Check for Completion
