@@ -1901,17 +1901,31 @@ def view_interview_room():
             st.sidebar.title("Training Modules")
             
             # Initialize navigation state if not present
-            if "training_nav" not in st.session_state:
-                st.session_state.training_nav = 1
+            if "training_active_id" not in st.session_state:
+                st.session_state.training_active_id = 1
+            
+            # Handle Force Update (from Auto-Advance)
+            if st.session_state.get("training_force_update"):
+                st.session_state.training_nav_radio = st.session_state.training_active_id
+                st.session_state.training_force_update = False
+            
+            # Ensure widget key exists
+            if "training_nav_radio" not in st.session_state:
+                st.session_state.training_nav_radio = st.session_state.training_active_id
+
+            def on_nav_change():
+                st.session_state.training_active_id = st.session_state.training_nav_radio
 
             selected_module_id = st.sidebar.radio(
                 "Select Chapter", 
                 [m['id'] for m in TRAINING_MODULES],
                 format_func=lambda x: f"Chapter {x}: {TRAINING_MODULES[x-1]['title']} {'✅' if str(x) in progress else ''}",
-                key="training_nav"
+                key="training_nav_radio",
+                on_change=on_nav_change
             )
             
-            module = next((m for m in TRAINING_MODULES if m['id'] == selected_module_id), None)
+            # Use the active ID from state, which is synced with radio
+            module = next((m for m in TRAINING_MODULES if m['id'] == st.session_state.training_active_id), None)
             
             if module:
                 st.header(f"Chapter {module['id']}: {module['title']}")
