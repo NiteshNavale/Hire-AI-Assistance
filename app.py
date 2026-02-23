@@ -1904,13 +1904,18 @@ def view_interview_room():
             if "training_active_id" not in st.session_state:
                 st.session_state.training_active_id = 1
             
+            # Validate training_active_id
+            valid_ids = [m['id'] for m in TRAINING_MODULES]
+            if st.session_state.training_active_id not in valid_ids:
+                st.session_state.training_active_id = valid_ids[0] if valid_ids else 1
+
             # Handle Force Update (from Auto-Advance)
             if st.session_state.get("training_force_update"):
                 st.session_state.training_nav_radio = st.session_state.training_active_id
                 st.session_state.training_force_update = False
             
-            # Ensure widget key exists
-            if "training_nav_radio" not in st.session_state:
+            # Ensure widget key exists and is valid
+            if "training_nav_radio" not in st.session_state or st.session_state.training_nav_radio not in valid_ids:
                 st.session_state.training_nav_radio = st.session_state.training_active_id
 
             def on_nav_change():
@@ -1918,7 +1923,7 @@ def view_interview_room():
 
             selected_module_id = st.sidebar.radio(
                 "Select Chapter", 
-                [m['id'] for m in TRAINING_MODULES],
+                valid_ids,
                 format_func=lambda x: f"Chapter {x}: {TRAINING_MODULES[x-1]['title']} {'✅' if str(x) in progress else ''}",
                 key="training_nav_radio",
                 on_change=on_nav_change
@@ -1946,7 +1951,8 @@ def view_interview_room():
                     score = progress[mod_id_str]
                     st.success(f"✅ Module Completed! Score: {score}%")
                     
-                    if score < 100: # Option to retake if not perfect? Or always?
+                    if score < 66: # Failed
+                        st.error("You did not meet the passing score (66%).")
                         st.info(f"Attempts: {current_attempts}/99")
                         if current_attempts < 99:
                             if st.button("🔄 Retake Quiz to Improve Score"):
@@ -1956,19 +1962,15 @@ def view_interview_room():
                                 st.rerun()
                         else:
                             st.warning("Max attempts reached for this module.")
+                    else:
+                        st.info(f"Attempts: {current_attempts}/99")
+                        # Option to retake even if passed? Usually not needed if passed.
+                        # But user requirement says "retake... until he pass".
+                        # If passed, we usually move on.
                 else:
                     if current_attempts >= 99:
                         st.error("❌ Max attempts (99) reached for this module.")
                         st.warning("Please contact HR to reset your training modules.")
-                        
-                        # Check if ALL modules are failed/done to trigger global failure status?
-                        # For now, just block this module.
-                        # If user is stuck, they can't proceed.
-                        
-                        # If we want to mark the whole user as Failed:
-                        # user['status'] = 'Training Failed'
-                        # database.save_candidate(user)
-                        # st.rerun()
                     else:
                         st.subheader(f"📝 Knowledge Check (Attempt {current_attempts + 1}/99)")
                         with st.form(f"quiz_{module['id']}"):
@@ -1989,35 +1991,36 @@ def view_interview_room():
                                 
                                 percentage = int((score / len(module['questions'])) * 100)
                                 
-                                # Check if passed (assuming 100% needed to "pass" per chapter based on "retake until pass" request, 
-                                # OR just save progress and let them retake if they want higher score.
-                                # The prompt says "pass all the training with at least 80 percentage".
-                                # But also "retake the chapter until he pass".
-                                # Let's assume passing a chapter means getting a score.
-                                
-                                progress[mod_id_str] = percentage
+                                progress[str(module['id'])] = percentage
                                 user['training_progress'] = progress
                                 
-                                # Check for global failure
-                                if attempts_log[mod_id_str] >= 99 and percentage < 50: # Arbitrary fail threshold?
-                                     # If they used 99 attempts and still failed?
-                                     pass
-
                                 database.save_candidate(user)
                                 
-                                st.success(f"Quiz Submitted! Score: {percentage}%")
+                                # Pass/Fail Logic
+                                is_passed = percentage >= 66
                                 
-                                # Auto-advance logic
-                                next_id = module['id'] + 1
-                                if next_id <= len(TRAINING_MODULES):
-                                    st.info(f"Advancing to Chapter {next_id}...")
-                                    time.sleep(1.5)
-                                    st.session_state.training_nav = next_id
+                                if is_passed:
+                                    st.balloons()
+                                    st.success(f"Quiz Submitted! Score: {percentage}%")
+                                    
+                                    # Auto-advance logic
+                                    next_id = module['id'] + 1
+                                    if next_id <= len(TRAINING_MODULES):
+                                        st.info(f"Passed! Advancing to Chapter {next_id}...")
+                                        time.sleep(2)
+                                        st.session_state.training_active_id = next_id
+                                        st.session_state.training_force_update = True
+                                    else:
+                                        st.success("All modules completed!")
+                                        time.sleep(2)
                                 else:
-                                    st.success("All modules completed!")
-                                    time.sleep(1.5)
+                                    st.error(f"Quiz Submitted. Score: {percentage}%")
+                                    st.warning("You did not pass. Please retake the quiz.")
+                                    time.sleep(2)
                                     
                                 st.rerun()
+            else:
+                st.error("Module not found.")
             
             # Check for Completion
             if completed_modules == total_modules:
