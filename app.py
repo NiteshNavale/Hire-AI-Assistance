@@ -2035,6 +2035,13 @@ def view_interview_room():
                 st.rerun()
         with col_cand_2:
             if st.button("🔄 Refresh Status", key="refresh_cand"):
+                # Reload active user data from fresh DB fetch
+                if st.session_state.active_user:
+                    current_id = st.session_state.active_user['id']
+                    # candidates global var is already fresh from this run
+                    fresh_user = next((c for c in candidates if c['id'] == current_id), None)
+                    if fresh_user:
+                        st.session_state.active_user = fresh_user
                 st.rerun()
         
         # CHEAT CHECK (Immediate Rejection Screen)
