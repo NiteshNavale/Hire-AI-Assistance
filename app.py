@@ -916,9 +916,15 @@ def view_vp_dashboard():
         return
 
     st.title("VP Dashboard - Candidate Approval")
-    if st.button("Logout VP", key="logout_vp", type="secondary"):
-        st.session_state.vp_authenticated = False
-        st.rerun()
+    
+    col_vp_1, col_vp_2 = st.columns([1, 1])
+    with col_vp_1:
+        if st.button("Logout VP", key="logout_vp", type="secondary"):
+            st.session_state.vp_authenticated = False
+            st.rerun()
+    with col_vp_2:
+        if st.button("🔄 Refresh Data", key="refresh_vp"):
+            st.rerun()
 
     # Filter candidates for VP Approval
     vp_candidates = [c for c in candidates if c.get('status') == 'VP Approval']
@@ -985,10 +991,15 @@ def view_hr_dashboard():
     st.title(f"Recruiter Command Center")
     st.caption(f"Logged in as: {st.session_state.hr_username}")
     
-    if st.button("Logout HR", key="logout_hr_main", type="secondary"):
-        st.session_state.hr_authenticated = False
-        st.session_state.hr_username = None
-        st.rerun()
+    col_hr_1, col_hr_2 = st.columns([1, 1])
+    with col_hr_1:
+        if st.button("Logout HR", key="logout_hr_main", type="secondary"):
+            st.session_state.hr_authenticated = False
+            st.session_state.hr_username = None
+            st.rerun()
+    with col_hr_2:
+        if st.button("🔄 Refresh Data", key="refresh_hr"):
+            st.rerun()
     
     current_hr = st.session_state.hr_username
     is_super_admin = current_hr == "admin"
@@ -2015,11 +2026,16 @@ def view_interview_room():
     else:
         user = st.session_state.active_user
         
-        if st.button("Logout Candidate", key="logout_cand_main", type="secondary"):
-            st.session_state.active_user = None
-            if 'aptitude_questions' in st.session_state:
-                del st.session_state.aptitude_questions
-            st.rerun()
+        col_cand_1, col_cand_2 = st.columns([1, 1])
+        with col_cand_1:
+            if st.button("Logout Candidate", key="logout_cand_main", type="secondary"):
+                st.session_state.active_user = None
+                if 'aptitude_questions' in st.session_state:
+                    del st.session_state.aptitude_questions
+                st.rerun()
+        with col_cand_2:
+            if st.button("🔄 Refresh Status", key="refresh_cand"):
+                st.rerun()
         
         # CHEAT CHECK (Immediate Rejection Screen)
         if user.get('rejection_reason') == 'Academic Dishonesty Detected (Tab Switching)':
@@ -2451,7 +2467,10 @@ def view_interview_room():
             st.title(f"Aptitude Portal: {user['name']}")
             
             if not user.get('aptitudeDate'):
-                st.info("Your exam has not been scheduled by HR yet. Please check back later.")
+                if is_junior:
+                    st.info("Your exam has not been scheduled by HR yet. Please check back later.")
+                else:
+                    st.info("Your interview rounds have not been scheduled by HR yet. Please check back later.")
                 return
     
             scheduled_datetime_str = f"{user['aptitudeDate']} {user['aptitudeTime']}"
