@@ -725,17 +725,9 @@ def sidebar_nav():
 
         if st.session_state.hr_authenticated:
             st.markdown(f"👤 **{st.session_state.hr_username}**")
-            if st.button("Logout HR", key="logout_hr", type="secondary"):
-                st.session_state.hr_authenticated = False
-                st.session_state.hr_username = None
-                st.rerun()
 
         if st.session_state.active_user:
-            if st.button("Logout Candidate", type="primary"):
-                st.session_state.active_user = None
-                if 'aptitude_questions' in st.session_state:
-                    del st.session_state.aptitude_questions
-                st.rerun()
+            st.caption(f"Logged in as: {st.session_state.active_user['name']}")
                 
     return choice
 
@@ -992,6 +984,11 @@ def view_hr_dashboard():
 
     st.title(f"Recruiter Command Center")
     st.caption(f"Logged in as: {st.session_state.hr_username}")
+    
+    if st.button("Logout HR", key="logout_hr_main", type="secondary"):
+        st.session_state.hr_authenticated = False
+        st.session_state.hr_username = None
+        st.rerun()
     
     current_hr = st.session_state.hr_username
     is_super_admin = current_hr == "admin"
@@ -1914,6 +1911,12 @@ def view_interview_room():
                         st.error("Invalid key or account archived.")
     else:
         user = st.session_state.active_user
+        
+        if st.button("Logout Candidate", key="logout_cand_main", type="secondary"):
+            st.session_state.active_user = None
+            if 'aptitude_questions' in st.session_state:
+                del st.session_state.aptitude_questions
+            st.rerun()
         
         # CHEAT CHECK (Immediate Rejection Screen)
         if user.get('rejection_reason') == 'Academic Dishonesty Detected (Tab Switching)':
