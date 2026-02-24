@@ -917,7 +917,7 @@ def view_vp_dashboard():
 
     st.title("VP Dashboard - Candidate Approval")
     
-    col_vp_1, col_vp_2 = st.columns([1, 1])
+    col_vp_1, _, col_vp_2 = st.columns([1, 8, 1])
     with col_vp_1:
         if st.button("Logout VP", key="logout_vp", type="secondary"):
             st.session_state.vp_authenticated = False
@@ -991,7 +991,7 @@ def view_hr_dashboard():
     st.title(f"Recruiter Command Center")
     st.caption(f"Logged in as: {st.session_state.hr_username}")
     
-    col_hr_1, col_hr_2 = st.columns([1, 1])
+    col_hr_1, _, col_hr_2 = st.columns([1, 8, 1])
     with col_hr_1:
         if st.button("Logout HR", key="logout_hr_main", type="secondary"):
             st.session_state.hr_authenticated = False
@@ -2026,7 +2026,7 @@ def view_interview_room():
     else:
         user = st.session_state.active_user
         
-        col_cand_1, col_cand_2 = st.columns([1, 1])
+        col_cand_1, _, col_cand_2 = st.columns([1, 8, 1])
         with col_cand_1:
             if st.button("Logout Candidate", key="logout_cand_main", type="secondary"):
                 st.session_state.active_user = None
