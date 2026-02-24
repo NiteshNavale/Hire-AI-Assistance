@@ -995,22 +995,27 @@ def view_hr_dashboard():
     
     current_hr = st.session_state.hr_username
     is_super_admin = current_hr == "admin"
-    active_candidates = [c for c in candidates if not c.get('archived')]
+    
+    # Filter candidates
+    all_active = [c for c in candidates if not c.get('archived')]
+    permanent_employees = [c for c in all_active if c.get('status') == 'Employee Confirmed']
+    pipeline_candidates = [c for c in all_active if c.get('status') != 'Employee Confirmed']
     archived_candidates = [c for c in candidates if c.get('archived')]
     
-    tab_pipeline, tab_jobs, tab_team, tab_archived = st.tabs([
-        f"Active Pipeline ({len(active_candidates)})", 
+    tab_pipeline, tab_employees, tab_jobs, tab_team, tab_archived = st.tabs([
+        f"Active Pipeline ({len(pipeline_candidates)})", 
+        f"Permanent Employees ({len(permanent_employees)})",
         "Manage Jobs / JDs",
         "Manage Team",
         f"Archived ({len(archived_candidates)})"
     ])
     
     with tab_pipeline:
-        df_active = pd.DataFrame(active_candidates)
+        df_active = pd.DataFrame(pipeline_candidates)
         m1, m2, m3 = st.columns(3)
         with m1:
             with st.container(border=True):
-                st.metric("Total Candidates", len(active_candidates))
+                st.metric("Candidates in Pipeline", len(pipeline_candidates))
         with m2:
             with st.container(border=True):
                 if not df_active.empty and 'aptitude_score' in df_active.columns:
@@ -1022,20 +1027,21 @@ def view_hr_dashboard():
         with m3:
             with st.container(border=True):
                 upcoming = "None"
-                for c in active_candidates:
+                for c in pipeline_candidates:
                         if c.get('round2Date'): 
                             upcoming = f"{c['round2Date']} {c['round2Time']}"
                 st.metric("Next Interview", upcoming)
         
         st.divider()
 
-        if not active_candidates:
+        if not pipeline_candidates:
             st.info("No active candidates in the pipeline.")
         else:
-            stage_screening = [c for c in active_candidates if c['status'] == 'Screening']
-            stage_aptitude = [c for c in active_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
-            stage_interview = [c for c in active_candidates if c['status'] == 'Interview Scheduled']
-            stage_selected = [c for c in active_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected', 'Training', 'Training Failed', 'Employee Confirmed']]
+            stage_screening = [c for c in pipeline_candidates if c['status'] == 'Screening']
+            stage_aptitude = [c for c in pipeline_candidates if c['status'] in ['Aptitude Scheduled', 'Aptitude Completed']]
+            stage_interview = [c for c in pipeline_candidates if c['status'] == 'Interview Scheduled']
+            # Removed 'Employee Confirmed' from here as they are now in separate tab
+            stage_selected = [c for c in pipeline_candidates if c['status'] in ['VP Approval', 'Offer Signed', 'Offer Sent', 'Offer Accepted', 'Joining Scheduled', 'Selected', 'Training', 'Training Failed']]
             
             subtab_1, subtab_2, subtab_3, subtab_4 = st.tabs([
                 f"📋 Screening ({len(stage_screening)})",
@@ -1616,6 +1622,40 @@ def view_hr_dashboard():
 
                                 else:
                                     st.caption(f"Locked by {assigned}")
+
+    # --- PERMANENT EMPLOYEES TAB ---
+    with tab_employees:
+        if not permanent_employees:
+            st.info("No permanent employees yet.")
+        else:
+            st.markdown(f"### 🎉 Permanent Employees ({len(permanent_employees)})")
+            
+            for c in permanent_employees:
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    with c1:
+                        st.markdown(f"**{c['name']}**")
+                        st.caption(f"{c['role']}")
+                        st.caption(f"🆔 {c.get('access_key', 'N/A')}")
+                    
+                    with c2:
+                        st.markdown(f"📧 {c['email']}")
+                        # Show Training Score
+                        prog = c.get('training_progress', {})
+                        if prog:
+                            avg = sum(prog.values()) / len(TRAINING_MODULES) if len(TRAINING_MODULES) > 0 else 0
+                            st.markdown(f"**Training Score:** {avg:.1f}%")
+                        else:
+                            st.markdown("**Training Score:** N/A")
+
+                    with c3:
+                        with st.popover("📄 View Profile"):
+                            render_candidate_details(c)
+                        
+                        if st.button("Archive Employee", key=f"arc_emp_{c['id']}"):
+                            c['archived'] = True
+                            database.save_candidate(c)
+                            st.rerun()
 
     # --- JOB MANAGEMENT TAB ---
     with tab_jobs:
