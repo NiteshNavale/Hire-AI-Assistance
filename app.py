@@ -999,12 +999,13 @@ def view_hr_dashboard():
     pipeline_candidates = [c for c in all_active if c.get('status') != 'Employee Confirmed']
     archived_candidates = [c for c in candidates if c.get('archived')]
     
-    tab_pipeline, tab_employees, tab_jobs, tab_team, tab_archived = st.tabs([
+    tab_pipeline, tab_employees, tab_jobs, tab_team, tab_archived, tab_reports = st.tabs([
         f"Active Pipeline ({len(pipeline_candidates)})", 
         f"Permanent Employees ({len(permanent_employees)})",
         "Manage Jobs / JDs",
         "Manage Team",
-        f"Archived ({len(archived_candidates)})"
+        f"Archived ({len(archived_candidates)})",
+        "📊 Reports"
     ])
     
     with tab_pipeline:
@@ -1894,6 +1895,108 @@ HireAI Admin
                      database.bulk_delete_candidates(selected_for_delete)
                      st.success(f"Permanently deleted {len(selected_for_delete)} records.")
                      st.rerun()
+
+    # --- REPORTS TAB ---
+    with tab_reports:
+        st.subheader("📊 Candidate Reports")
+        st.caption("Generate detailed reports based on application date range.")
+        
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            start_date = st.date_input("From Date", value=datetime.now() - timedelta(days=30))
+        with col_r2:
+            end_date = st.date_input("To Date", value=datetime.now())
+            
+        if st.button("Generate Report", type="primary"):
+            # Filter candidates
+            report_data = []
+            
+            # Combine all lists - we use the main 'candidates' list which has everything
+            all_candidates_for_report = candidates 
+            
+            for c in all_candidates_for_report:
+                # Parse date
+                try:
+                    c_date = datetime.strptime(c['date'], "%Y-%m-%d").date()
+                except:
+                    continue # Skip invalid dates
+                
+                if start_date <= c_date <= end_date:
+                    # Collect Data
+                    
+                    # Training Progress
+                    train_prog = c.get('training_progress', {})
+                    train_avg = sum(train_prog.values()) / len(TRAINING_MODULES) if train_prog and len(TRAINING_MODULES) > 0 else 0
+                    
+                    # Aptitude Status Logic
+                    apt_score = c.get('aptitude_score')
+                    apt_status = "Pending"
+                    if apt_score is not None:
+                        apt_status = "Passed" if apt_score >= 50 else "Failed"
+                    
+                    # Interview Logic
+                    r_date = c.get('round2Date', 'N/A')
+                    r_round = c.get('interview_round', 0)
+                    
+                    r1_val = "N/A"
+                    r2_val = "N/A"
+                    
+                    if r_round == 1:
+                        r1_val = r_date
+                    elif r_round >= 2:
+                        r1_val = "Completed" # Date overwritten in system
+                        r2_val = r_date
+
+                    row = {
+                        "Candidate ID": c['id'],
+                        "Name": c['name'],
+                        "Email": c['email'],
+                        "Role": c['role'],
+                        "Current Status": c['status'],
+                        "Application Date": c['date'],
+                        "AI Screening Score": c.get('score', 0),
+                        "Experience (Years)": c.get('years_experience', 0),
+                        "Recruiter": c.get('recruiter', 'Unassigned'),
+                        
+                        # Aptitude
+                        "Aptitude Score": apt_score if apt_score is not None else 'N/A',
+                        "Aptitude Status": apt_status,
+                        "Aptitude Date": c.get('aptitudeDate', 'N/A'),
+                        
+                        # Interview
+                        "Round 1 Date": r1_val,
+                        "Round 2 Date": r2_val,
+                        
+                        # Offer
+                        "Offer Sent": "Yes" if c.get('status') in ['Offer Sent', 'Offer Signed', 'Offer Accepted', 'Joining Scheduled', 'Employee Confirmed'] else "No",
+                        "Offer Signed Date": c.get('offer_signed_date', 'N/A'),
+                        
+                        # Training
+                        "Training Status": "Completed" if train_avg >= 80 else "In Progress" if train_prog else "Not Started",
+                        "Training Avg Score": f"{train_avg:.1f}%",
+                        "Training Attempts": sum(c.get('training_attempts', {}).values()),
+                        
+                        # Joining
+                        "Joined Company": "Yes" if c.get('status') == 'Employee Confirmed' else "No",
+                        "Employee ID": c.get('access_key') if c.get('status') == 'Employee Confirmed' else 'N/A'
+                    }
+                    report_data.append(row)
+            
+            if not report_data:
+                st.warning("No records found for the selected date range.")
+            else:
+                df_report = pd.DataFrame(report_data)
+                st.success(f"Found {len(report_data)} records.")
+                st.dataframe(df_report, use_container_width=True)
+                
+                # CSV Download
+                csv = df_report.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Report as CSV",
+                    data=csv,
+                    file_name=f"candidate_report_{start_date}_{end_date}.csv",
+                    mime="text/csv",
+                )
 
 def view_interview_room():
     if not st.session_state.active_user:
