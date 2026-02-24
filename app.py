@@ -2455,7 +2455,7 @@ def view_interview_room():
         
         is_junior = False
         try:
-            exp_val = float(str(user.get('experience', 0)).split()[0]) # Handle "2 years" string if present
+            exp_val = float(str(user.get('years_experience', 0)).split()[0]) # Handle "2 years" string if present
             if exp_val < 2:
                 is_junior = True
         except:
@@ -2464,7 +2464,10 @@ def view_interview_room():
         should_show_aptitude = is_junior or user.get('status') in ['Screening', 'Aptitude Scheduled']
         
         if should_show_aptitude:
-            st.title(f"Aptitude Portal: {user['name']}")
+            if is_junior:
+                st.title(f"Aptitude Portal: {user['name']}")
+            else:
+                st.title(f"Candidate Portal: {user['name']}")
             
             if not user.get('aptitudeDate'):
                 if is_junior:
