@@ -2000,11 +2000,11 @@ HireAI Admin
 
 def view_interview_room():
     if not st.session_state.active_user:
-        st.title("Candidate Login")
+        st.title("Candidate / Employee Login")
         col_c, _ = st.columns([1, 1])
         with col_c:
             with st.container(border=True):
-                key_input = st.text_input("Enter your 8-digit Access Key", placeholder="XXXX-0000")
+                key_input = st.text_input("Access Key / Employee ID", placeholder="Enter your Access Key or 12-digit Employee ID")
                 if st.button("Login to Portal", type="primary"):
                     match = next((c for c in candidates if c.get('access_key') == key_input and not c.get('archived')), None)
                     if match:
